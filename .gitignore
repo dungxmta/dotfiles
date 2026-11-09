@@ -18,3 +18,11 @@ dot_DS_Store
 *.kdbx
 .env
 .env.*
+*.ppk
+*.age
+*credentials*
+*netrc*
+**/dot_kube/
+**/private_dot_kube/
+**/*_key
+!**/*_key.pub

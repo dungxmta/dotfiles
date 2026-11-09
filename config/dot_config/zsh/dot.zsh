@@ -20,7 +20,15 @@ dot() {
       ;;
     diff)   chezmoi diff "$@" ;;
     apply)  chezmoi apply "$@" ;;
-    update) chezmoi update "$@" ;;
+    update)
+      # pull, show the changes, then apply only after a yes
+      chezmoi git -- pull --ff-only || return
+      chezmoi diff
+      [[ -z "$(chezmoi status)" ]] && { print "dot: up to date"; return 0; }
+      read -q "?Apply these changes? [y/N] " || { print; return 1; }
+      print
+      chezmoi apply "$@"
+      ;;
     status)
       repo="$(_dot_repo)" || return
       git -C "$repo" status -sb
@@ -38,7 +46,7 @@ usage: dot <command>
   edit <file>  edit the chezmoi source of a managed file
   diff         preview changes (chezmoi diff)
   apply        apply changes (chezmoi apply)
-  update       pull the repo and apply (chezmoi update)
+  update       pull the repo, show the diff, apply after a yes
   status       git status of the repo + chezmoi status
   sync         reconcile profile, tools and sparse checkout (install.sh --sync)
   tools        choose tools interactively (install.sh --select-tools)
