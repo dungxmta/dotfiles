@@ -62,6 +62,7 @@ collect_pins() {
       zsh | tmux) # a=dir b=repo c=commit
         head="$(pgit ls-remote "https://github.com/$b.git" HEAD 2>/dev/null | cut -f1)"
         [ -n "$head" ] || { warn "could not reach $b"; continue; }
+        valid_sha "$head" || { warn "$b: unexpected commit id from git ls-remote"; continue; }
         [ "$head" = "$c" ] || echo "${b##*/} plugin repo $(echo "$c" | cut -c1-7) $(echo "$head" | cut -c1-7) $c:$head"
         ;;
       mise) # a=name b=mise tool c=version d=os
@@ -70,11 +71,17 @@ collect_pins() {
         # a pin for the other OS shows as name@os (omp@linux on a Mac)
         name="$a"
         [ "$d" = all ] || [ "$d" = "$(uname -s | tr 'A-Z' 'a-z')" ] || name="$a@$d"
-        [ -n "$head" ] && version_gt "$head" "$c" && echo "$name pin repo $c $head $a"
+        [ -n "$head" ] || continue
+        valid_version "$head" || { warn "$b: ignoring unexpected version '$head'"; continue; }
+        version_gt "$head" "$c" && echo "$name pin repo $c $head $a"
         ;;
     esac
   done <"$PINS"
 }
+
+# Anything written into pins.txt (and from there into configs) must look like these.
+valid_sha() { case "$1" in *[!0-9a-f]* | "") return 1 ;; esac; [ ${#1} -eq 40 ]; }
+valid_version() { printf '%s' "$1" | grep -Eq '^[0-9][0-9A-Za-z.+_-]*$'; }
 
 # version_gt <a> <b>: a is a newer dotted version than b (never offer a downgrade).
 version_gt() {
@@ -116,6 +123,7 @@ upgrade_one() {
     repo)
       if [ "$kind" = plugin ]; then
         sha="${key%%:*}" latest="${key#*:}"
+        valid_sha "$sha" && valid_sha "$latest" || { fail "pin $name: bad commit id"; return; }
         sed -i.bak "s/$sha/$latest/" "$PINS" && rm -f "$PINS.bak"
         echo "pin $(echo "$sha" | cut -c1-7) -> $(echo "$latest" | cut -c1-7)"
         # move the local checkout too, when this machine has it
@@ -124,7 +132,8 @@ upgrade_one() {
         done <"$PINS"
       else
         # mise pin: rewrite the version, re-render the mise config, install it
-        awk -v n="$key" -v v="$latest" '$1 == "mise" && $2 == n { sub($4, v) } { print }' "$PINS" >"$PINS.new" &&
+        valid_version "$latest" || { fail "pin $name: bad version $latest"; return; }
+        awk -v n="$key" -v v="$latest" '$1 == "mise" && $2 == n { $4 = v } { print }' "$PINS" >"$PINS.new" &&
           mv "$PINS.new" "$PINS" && echo "pin $cur -> $latest" || fail "pin $name"
         if has chezmoi && [ -f "$HOME/.config/mise/config.toml" ]; then
           chezmoi apply --force "$HOME/.config/mise/config.toml" && (cd / && mise install --yes >/dev/null 2>&1) ||

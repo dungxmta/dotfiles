@@ -6,12 +6,14 @@ PINS="$REPO/installer/tools/pins.txt"
 
 # Ignore ~/.gitconfig: on macOS it rewrites GitHub URLs to SSH, which a fresh
 # machine has no key for yet. These are public HTTPS fetches.
-pgit() { GIT_CONFIG_GLOBAL=/dev/null git "$@"; }
+pgit() { GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 git "$@"; }
 
 # pinned_checkout <dir> <repo> <commit>: fetch exactly that commit and check it out.
 pinned_checkout() {
   local dir="$1" repo="$2" sha="$3" new=false
-  if [ ! -d "$dir/.git" ]; then
+  case "$sha" in *[!0-9a-f]* | "") fail "bad pin for $repo: $sha"; return ;; esac
+  [ ${#sha} -eq 40 ] || { fail "bad pin for $repo: $sha"; return; }
+  if [ ! -e "$dir" ]; then
     new=true
     mkdir -p "$dir" && pgit -C "$dir" init -q && pgit -C "$dir" remote add origin "https://github.com/$repo.git" ||
       { fail "git init $dir"; return; }
@@ -32,7 +34,12 @@ install_pinned() {
     dir="$HOME/$dir"
     if [ -d "$dir/.git" ]; then
       [ "$(git -C "$dir" rev-parse HEAD 2>/dev/null)" = "$sha" ] ||
-        say "note: ~/${dir#"$HOME/"} is not at its pinned commit (install.sh --upgrade moves it)"
+        say "note: ~/${dir#"$HOME/"} is not at its pinned commit (dot upgrade moves it)"
+      continue
+    fi
+    # installed some other way (tarball, package): leave it alone
+    if [ -e "$dir" ]; then
+      warn "~/${dir#"$HOME/"} exists but is not a git checkout; leaving it as is"
       continue
     fi
     pinned_checkout "$dir" "$repo" "$sha"

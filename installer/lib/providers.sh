@@ -123,8 +123,9 @@ ensure_brew() {
   local tag tmp
   tag="$(github_latest Homebrew/brew)" || { warn "could not find the latest Homebrew release"; return 1; }
   tmp="$(mktemp -d)"
-  if curl -fsSL -o "$tmp/Homebrew.pkg" "https://github.com/Homebrew/brew/releases/download/$tag/Homebrew.pkg" &&
-    spctl --assess --type install "$tmp/Homebrew.pkg" 2>/dev/null; then
+  if curl -fsSL --proto '=https' -o "$tmp/Homebrew.pkg" "https://github.com/Homebrew/brew/releases/download/$tag/Homebrew.pkg" &&
+    spctl --assess --type install "$tmp/Homebrew.pkg" 2>/dev/null &&
+    pkgutil --check-signature "$tmp/Homebrew.pkg" | grep -q '(927JGANW46)$'; then  # Homebrew's Developer ID team
     sudo installer -pkg "$tmp/Homebrew.pkg" -target / || { rm -rf "$tmp"; return 1; }
   else
     warn "Homebrew $tag: download failed or the package is not signed and notarized"
@@ -164,8 +165,10 @@ install_apt() {
 # github_latest <owner/repo>: latest release tag, from the redirect (no API rate limit).
 github_latest() {
   local url
-  url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$1/releases/latest")" || return 1
-  case "$url" in */tag/*) echo "${url##*/tag/}" ;; *) return 1 ;; esac
+  url="$(curl -fsSLI --proto '=https' -o /dev/null -w '%{url_effective}' "https://github.com/$1/releases/latest")" || return 1
+  url="${url##*/tag/}"
+  case "$url" in "" | *[!0-9A-Za-z.+_-]*) return 1 ;; esac
+  echo "$url"
 }
 
 sha256_of() {
@@ -175,7 +178,14 @@ sha256_of() {
 # fetch_verified <url> <sums url> <file name> <dir>: download into dir and check the hash.
 fetch_verified() {
   local url="$1" sums="$2" name="$3" dir="$4" want
-  curl -fsSL -o "$dir/$name" "$url" && curl -fsSL -o "$dir/sums" "$sums" || return 1
+  curl -fsSL --proto '=https' -o "$dir/$name" "$url" || return 1
+  case "$sums" in
+    *.asc) # clearsigned list: keep only the signed text, verified with the pinned key
+      curl -fsSL --proto '=https' -o "$dir/sums.asc" "$sums" &&
+        gpgv --keyring "$REPO/installer/keys/mise.gpg" --output "$dir/sums" "$dir/sums.asc" 2>/dev/null ||
+        { warn "bad or missing signature: $sums"; return 1; } ;;
+    *) curl -fsSL --proto '=https' -o "$dir/sums" "$sums" || return 1 ;;
+  esac
   want="$(awk -v f="$name" '{ n = $2; sub(/^[*.\/]+/, "", n) } n == f { print $1; exit }' "$dir/sums")"
   [ -n "$want" ] && [ "$(sha256_of "$dir/$name")" = "$want" ] || { warn "checksum mismatch: $name"; return 1; }
 }
@@ -219,7 +229,7 @@ install_mise_self() {
   name="mise-${tag}-linux-${arch}.tar.gz"
   tmp="$(mktemp -d)"
   if fetch_verified "https://github.com/jdx/mise/releases/download/$tag/$name" \
-    "https://github.com/jdx/mise/releases/download/$tag/SHASUMS256.txt" "$name" "$tmp" &&
+    "https://github.com/jdx/mise/releases/download/$tag/SHASUMS256.asc" "$name" "$tmp" &&
     tar -xzf "$tmp/$name" -C "$tmp" mise/bin/mise && mkdir -p "$HOME/.local/bin" &&
     cp "$tmp/mise/bin/mise" "$HOME/.local/bin/mise" && chmod 755 "$HOME/.local/bin/mise"; then
     :

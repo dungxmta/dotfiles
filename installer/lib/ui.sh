@@ -18,7 +18,12 @@ interactive() { [ "$ASSUME_YES" != true ] && [ -r /dev/tty ] && [ -w /dev/tty ] 
 confirm() {
   local q="$1" def="${2:-y}" a hint="[Y/n]"
   [ "$def" = n ] && hint="[y/N]"
-  if ! interactive; then [ "$def" = y ]; return; fi
+  if ! interactive; then
+    # no terminal: only --yes answers yes for the user
+    [ "$def" = y ] && [ "$ASSUME_YES" = true ] && return 0
+    [ "$ASSUME_YES" = true ] || warn "no terminal for: $q (rerun with --yes)"
+    return 1
+  fi
   printf '? %s %s ' "$q" "$hint" >/dev/tty
   read -r a </dev/tty || a=""
   [ -z "$a" ] && a="$def"

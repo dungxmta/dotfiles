@@ -8,6 +8,7 @@
 {{- range splitList "\n" (include (joinPath .chezmoi.workingTree "installer/tools/pins.txt")) }}
 {{-   $f := regexSplit "\\s+" (trim .) -1 }}
 {{-   if and (eq (len $f) 5) (eq (index $f 0) "mise") (or (eq (index $f 4) "all") (eq (index $f 4) $.chezmoi.os)) }}
+{{-     if not (regexMatch "^[0-9][0-9A-Za-z.+_-]*$" (index $f 3)) }}{{ fail (printf "pins.txt: bad version for %s" (index $f 1)) }}{{ end }}
 {{-     $_ := set $versions (index $f 1) (index $f 3) }}
 {{-   end }}
 {{- end -}}

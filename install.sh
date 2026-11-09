@@ -238,6 +238,7 @@ if [ "$PROFILE" = tmux-only ]; then
 fi
 for id in $TOOLS; do in_list "$id" "$CLI_TOOLS $EXTRA_TOOLS" || die "unknown tool: $id"; done
 for id in $RUNTIMES; do in_list "$id" "$RUNTIMES_ALL" || die "unknown runtime: $id"; done
+for id in $APPS; do in_list "$id" "$PROFILE_APPS_ALLOWED" || die "app not allowed on $PROFILE: $id"; done
 in_list neovim "$TOOLS" || NVIM=none
 [ "$NVIM" = none ] && in_list neovim "$TOOLS" && NVIM=default
 WORK_HOST="${WORK_HOST:-}" WORK_EMAIL="${WORK_EMAIL:-}"
@@ -354,6 +355,7 @@ else
   replace=""  # one path per line: paths can contain spaces
   while read -r st path; do
     [ -n "$path" ] || continue
+    [ -d "$HOME/$path" ] && [ ! -L "$HOME/$path" ] && continue  # dirs: only modes change
     if [ -e "$HOME/$path" ] || [ -L "$HOME/$path" ]; then replace="$replace$path
 "; fi
   done <<EOF
