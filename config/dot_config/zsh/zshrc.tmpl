@@ -7,6 +7,13 @@
 # off = oh-my-zsh defaults (~/.zsh_history). Per-shell override: ZSH_CURATED_HISTORY=off zsh
 # (REPL vars are exported: a nested off shell inherits them; use `env -u PYTHON_HISTORY -u LESSHISTFILE -u NODE_REPL_HISTORY`).
 : ${ZSH_CURATED_HISTORY:=on}
+{{- if not $mac }}
+
+# No terminfo for $TERM here (e.g. xterm-ghostty via limactl shell/ssh) garbles line
+# editing; fall back to a common entry. Better: copy it from the Mac once:
+#   infocmp -x xterm-ghostty | limactl shell NAME -- tic -x -
+(( $+commands[infocmp] )) && ! infocmp "$TERM" >/dev/null 2>&1 && export TERM=xterm-256color
+{{- end }}
 
 # If you come from bash you might have to change your $PATH.
 # export PATH=$HOME/bin:/usr/local/bin:$PATH
