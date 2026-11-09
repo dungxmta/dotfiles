@@ -1,0 +1,6 @@
+{{- /* ~/.tmux.conf: variant and prefix come from ./install.sh (local chezmoi data) */ -}}
+{{- if eq .tmuxVariant "lite" -}}
+{{ template "tmux/lite.conf" . }}
+{{- else -}}
+{{ template "tmux/default.conf" . }}
+{{- end -}}
