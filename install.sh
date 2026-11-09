@@ -353,17 +353,33 @@ else
   fi
   # Existing files that would be replaced (and ~/.zshrc, see below).
   replace=""  # one path per line: paths can contain spaces
+  # Managed dirs that are symlinks here: chezmoi would swap the link for an empty
+  # dir (e.g. a linked ~/.ssh loses its keys), and backups would write through it.
+  linked=""
+  managed_dirs="$(chezmoi --config "$tmp/chezmoi.toml" --source "$REPO" managed --include=dirs 2>/dev/null)" || managed_dirs=""
   while read -r st path; do
     [ -n "$path" ] || continue
     [ -d "$HOME/$path" ] && [ ! -L "$HOME/$path" ] && continue  # dirs: only modes change
+    if [ -L "$HOME/$path" ] && [ -d "$HOME/$path" ] && printf '%s\n' "$managed_dirs" | grep -qxF -- "$path"; then
+      linked="$linked$path
+"
+      continue
+    fi
     if [ -e "$HOME/$path" ] || [ -L "$HOME/$path" ]; then replace="$replace$path
 "; fi
   done <<EOF
 $changes
 EOF
   [ -n "$replace" ] && say "existing files that will be replaced (backed up first):" && printf '%s' "$replace" | sed 's/^/  /'
+  if [ -n "$linked" ]; then
+    say "managed directories that are symlinks here (chezmoi would replace them with empty directories):"
+    printf '%s' "$linked" | sed 's/^/  ~\//'
+    say "make each a real directory (e.g. rm the link, mv its target there) and rerun"
+  fi
   if [ "$DRY_RUN" = true ]; then
     say "(dry run) nothing changed"
+  elif [ -n "$linked" ]; then
+    fail "configuration not applied: symlinked managed directories"
   elif [ -n "$changes" ] && ! confirm "Apply these changes?" y; then
     say "configuration not applied"
   else
