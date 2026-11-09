@@ -1,0 +1,4 @@
+{{- if hasKey . "work" -}}
+[user]
+    email = {{ .work.email }}
+{{ end -}}

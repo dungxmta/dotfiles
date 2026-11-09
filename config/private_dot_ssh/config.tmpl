@@ -1,0 +1,57 @@
+{{- $mac := eq .chezmoi.os "darwin" -}}
+{{- $pinned := "    UserKnownHostsFile ~/.ssh/known_hosts.d/vcs\n    StrictHostKeyChecking yes" -}}
+{{- if $mac -}}
+Include ~/.lima/*/ssh.config
+Include ~/.colima/ssh_config
+{{- else -}}
+# Two IdentityFiles per account; missing files are skipped:
+#   ~/.ssh/id_ed25519_<alias>        key for this machine (scripts/setup-git.sh)
+#   ~/.ssh/mac/id_ed25519_<alias>    Mac key from a forwarded agent: no private
+#                                    file here, so ssh asks the agent for <path>.pub
+{{- end }}
+
+Host github
+    HostName github.com
+    User git
+    IdentityFile ~/.ssh/id_ed25519_github
+{{ $pinned }}
+{{- if not $mac }}
+    IdentityFile ~/.ssh/mac/id_ed25519_github
+{{- end }}
+    IdentitiesOnly yes
+{{- if $mac }}
+    AddKeysToAgent yes
+    UseKeychain yes
+
+Host gitlab
+    HostName gitlab.com
+    User git
+    IdentityFile ~/.ssh/id_ed25519_gitlab
+{{ $pinned }}
+    IdentitiesOnly yes
+    AddKeysToAgent yes
+    UseKeychain yes
+{{- end }}
+
+{{- if hasKey . "work" }}
+
+# work account: [data.work] in the local chezmoi config (never in git)
+Host work{{ range (get .work "sshAliases" | default list) }} {{ . }}{{ end }}
+    HostName {{ .work.host }}
+    User git
+    IdentityFile {{ get .work "identityFile" | default "~/.ssh/id_ed25519_work" }}
+{{- if hasKey .work "hostKey" }}
+{{ $pinned }}
+{{- else }}
+    # trust on first connect; set hostKey in [data.work] to pin it
+    StrictHostKeyChecking accept-new
+{{- end }}
+{{- if not $mac }}
+    IdentityFile ~/.ssh/mac/id_ed25519_work
+{{- end }}
+    IdentitiesOnly yes
+{{- if $mac }}
+    AddKeysToAgent yes
+    UseKeychain yes
+{{- end }}
+{{- end }}

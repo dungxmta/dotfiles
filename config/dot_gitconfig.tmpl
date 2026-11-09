@@ -1,0 +1,44 @@
+[include]
+    path = ~/.config/git/gitconfig
+
+{{- if and (hasKey . "work") (eq .profile "mac-work") }}
+
+# Default identity on the work Mac (from [data.work] in the local chezmoi
+# config). Must stay above the includeIf rules: the last value wins.
+[user]
+    email = {{ .work.email }}
+{{- with (get .work "name") }}
+    name = {{ . }}
+{{- end }}
+{{- end }}
+
+# Personal repos under ~/SYNC (e.g. dotfiles), even before they have a remote.
+[includeIf "gitdir:~/SYNC/"]
+    path = ~/.config/git/gitconfig-github
+
+[includeIf "hasconfig:remote.*.url:git@github:*/**"]
+    path = ~/.config/git/gitconfig-github
+[includeIf "hasconfig:remote.*.url:git@github.com:*/**"]
+    path = ~/.config/git/gitconfig-github
+[includeIf "hasconfig:remote.*.url:https://github.com/**"]
+    path = ~/.config/git/gitconfig-github
+{{- if eq .chezmoi.os "darwin" }}
+
+[includeIf "hasconfig:remote.*.url:git@gitlab:*/**"]
+    path = ~/.config/git/gitconfig-gitlab
+[includeIf "hasconfig:remote.*.url:git@gitlab.com:*/**"]
+    path = ~/.config/git/gitconfig-gitlab
+{{- end }}
+{{- if hasKey . "work" }}
+
+# work account: [data.work] in the local chezmoi config (never in git)
+[url "git@work:"]
+    insteadOf = git@{{ .work.host }}:
+    insteadOf = https://{{ .work.host }}/
+[includeIf "hasconfig:remote.*.url:git@{{ .work.host }}:*/**"]
+    path = ~/.config/git/gitconfig-work
+{{- range (list "work" | concat (get .work "sshAliases" | default list)) }}
+[includeIf "hasconfig:remote.*.url:git@{{ . }}:*/**"]
+    path = ~/.config/git/gitconfig-work
+{{- end }}
+{{- end }}
