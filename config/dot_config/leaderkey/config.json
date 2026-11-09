@@ -1,0 +1,284 @@
+{
+  "actions" : [
+    {
+      "actions" : [
+        {
+          "key" : "c",
+          "type" : "application",
+          "value" : "/Applications/Claude.app"
+        },
+        {
+          "key" : "g",
+          "type" : "application",
+          "value" : "/Applications/ChatGPT.app"
+        },
+        {
+          "key" : "l",
+          "type" : "application",
+          "value" : "/Applications/LM Studio.app"
+        },
+        {
+          "key" : "m",
+          "type" : "application",
+          "value" : "/Applications/oMLX.app"
+        },
+        {
+          "key" : "o",
+          "type" : "application",
+          "value" : "/Applications/OpenCode.app"
+        }
+      ],
+      "key" : "a",
+      "label" : "AI/LLM",
+      "type" : "group"
+    },
+    {
+      "actions" : [
+        {
+          "key" : "b",
+          "type" : "application",
+          "value" : "/Applications/Brave Browser.app"
+        },
+        {
+          "key" : "c",
+          "type" : "application",
+          "value" : "/Applications/Google Chrome.app"
+        },
+        {
+          "key" : "z",
+          "type" : "application",
+          "value" : "/Applications/Zen.app"
+        }
+      ],
+      "key" : "b",
+      "type" : "group"
+    },
+    {
+      "actions" : [
+        {
+          "key" : "m",
+          "type" : "application",
+          "value" : "/Applications/Mattermost.app"
+        },
+        {
+          "key" : "t",
+          "type" : "application",
+          "value" : "/Applications/Telegram.app"
+        },
+        {
+          "key" : "z",
+          "type" : "application",
+          "value" : "/Applications/Zalo.app"
+        }
+      ],
+      "key" : "c",
+      "label" : "Chat",
+      "type" : "group"
+    },
+    {
+      "actions" : [
+        {
+          "key" : "b",
+          "type" : "application",
+          "value" : "/Applications/Camunda Modeler.app"
+        },
+        {
+          "key" : "d",
+          "type" : "application",
+          "value" : "/Applications/Docker.app"
+        },
+        {
+          "key" : "f",
+          "type" : "application",
+          "value" : "/Applications/Cyberduck.app"
+        },
+        {
+          "key" : "h",
+          "type" : "application",
+          "value" : "/Applications/Postman.app"
+        },
+        {
+          "key" : "m",
+          "type" : "application",
+          "value" : "/Applications/MQTTX.app"
+        },
+        {
+          "key" : "p",
+          "type" : "application",
+          "value" : "/Applications/DevPod.app"
+        }
+      ],
+      "key" : "d",
+      "label" : "Dev",
+      "type" : "group"
+    },
+    {
+      "actions" : [
+        {
+          "key" : "a",
+          "type" : "application",
+          "value" : "/Applications/LM Studio.app"
+        },
+        {
+          "key" : "d",
+          "type" : "application",
+          "value" : "/Applications/DataGrip.app"
+        },
+        {
+          "key" : "g",
+          "type" : "application",
+          "value" : "/Applications/GoLand.app"
+        },
+        {
+          "key" : "i",
+          "type" : "application",
+          "value" : "/Applications/IntelliJ IDEA.app"
+        },
+        {
+          "key" : "p",
+          "type" : "application",
+          "value" : "/Applications/PyCharm.app"
+        },
+        {
+          "key" : "v",
+          "type" : "application",
+          "value" : "/Applications/Visual Studio Code.app"
+        }
+      ],
+      "key" : "i",
+      "label" : "IDE",
+      "type" : "group"
+    },
+    {
+      "actions" : [
+        {
+          "key" : "h",
+          "type" : "application",
+          "value" : "/Applications/Homerow.app"
+        },
+        {
+          "key" : "k",
+          "type" : "application",
+          "value" : "/Applications/kindaVim.app"
+        },
+        {
+          "iconPath" : "/Applications/Leader Key.app",
+          "key" : "l",
+          "label" : "LeaderKey",
+          "type" : "url",
+          "value" : "leaderkey://settings"
+        },
+        {
+          "key" : "m",
+          "type" : "application",
+          "value" : "/Applications/Mouseless.app"
+        },
+        {
+          "key" : "v",
+          "type" : "application",
+          "value" : "/Applications/Vial.app"
+        }
+      ],
+      "key" : "k",
+      "label" : "Keyboard",
+      "type" : "group"
+    },
+    {
+      "actions" : [
+        {
+          "key" : "e",
+          "type" : "application",
+          "value" : "/Applications/Microsoft Excel.app"
+        },
+        {
+          "key" : "o",
+          "type" : "application",
+          "value" : "/Applications/Microsoft Outlook.app"
+        },
+        {
+          "key" : "w",
+          "type" : "application",
+          "value" : "/Applications/Microsoft Word.app"
+        }
+      ],
+      "key" : "o",
+      "label" : "Office",
+      "type" : "group"
+    },
+    {
+      "actions" : [
+        {
+          "key" : "c",
+          "type" : "url",
+          "value" : "raycast://extensions/raycast/system/open-camera"
+        },
+        {
+          "key" : "e",
+          "type" : "url",
+          "value" : "raycast://extensions/raycast/emoji-symbols/search-emoji-symbols"
+        },
+        {
+          "key" : "p",
+          "type" : "url",
+          "value" : "raycast://confetti"
+        },
+        {
+          "key" : "s",
+          "type" : "url",
+          "value" : "raycast://extensions/raycast/raycast/settings"
+        }
+      ],
+      "key" : "r",
+      "label" : "Raycast",
+      "type" : "group"
+    },
+    {
+      "actions" : [
+        {
+          "actions" : [
+            {
+              "key" : "s",
+              "label" : "Reload SketchyBar",
+              "type" : "url",
+              "value" : "raycast://extensions/raycast/scripts/reload-sketchybar"
+            }
+          ],
+          "key" : "r",
+          "label" : "Reload",
+          "type" : "group"
+        }
+      ],
+      "key" : "s",
+      "label" : "System",
+      "type" : "group"
+    },
+    {
+      "actions" : [
+        {
+          "key" : "g",
+          "type" : "application",
+          "value" : "/Applications/Ghostty.app"
+        },
+        {
+          "key" : "i",
+          "type" : "application",
+          "value" : "/Applications/iTerm.app"
+        },
+        {
+          "key" : "k",
+          "type" : "application",
+          "value" : "/Applications/kitty.app"
+        },
+        {
+          "key" : "w",
+          "type" : "application",
+          "value" : "/Applications/Warp.app"
+        }
+      ],
+      "key" : "t",
+      "label" : "Terminal",
+      "type" : "group"
+    }
+  ],
+  "type" : "group"
+}
