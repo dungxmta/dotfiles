@@ -156,7 +156,7 @@ install_apt() {
   [ -n "$PLAN_APT" ] || return 0
   apt_usable || { fail "apt:$PLAN_APT (no root/sudo)"; return; }
   $APT_SUDO apt-get update -qq || { fail "apt-get update"; return; }
-  DEBIAN_FRONTEND=noninteractive $APT_SUDO apt-get install -y --no-install-recommends $PLAN_APT || fail "apt:$PLAN_APT"
+  $APT_SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $PLAN_APT || fail "apt:$PLAN_APT"
 }
 
 # --- verified downloads (Linux) ------------------------------------------------------
@@ -217,7 +217,7 @@ install_mise_self() {
       $APT_SUDO install -m 644 "$REPO/installer/keys/mise-archive-keyring.asc" /etc/apt/keyrings/mise-archive-keyring.asc &&
       echo "deb [signed-by=/etc/apt/keyrings/mise-archive-keyring.asc] https://mise.jdx.dev/deb stable main" |
       $APT_SUDO tee /etc/apt/sources.list.d/mise.list >/dev/null &&
-      $APT_SUDO apt-get update -qq && DEBIAN_FRONTEND=noninteractive $APT_SUDO apt-get install -y mise &&
+      $APT_SUDO apt-get update -qq && $APT_SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y mise &&
       return 0
     fail "mise (apt)"
     return
