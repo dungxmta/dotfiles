@@ -1,0 +1,24 @@
+{{- $ai := ternary "codex" "claude" (eq .chezmoi.os "darwin") -}}
+name = "Projects" # workspace name
+description = "Project dir (New Workspace)"
+working_dir = "{{ if eq .chezmoi.os "darwin" }}~/Desktop/main-cs/Projects/{{ else }}~/projects{{ end }}" # default dir
+
+# default tabs
+[[tabs]]
+name = "1"
+
+[[tabs]]
+name = "2"
+
+# tab 3
+[[tabs]]
+name = "{{ $ai }}"
+
+# tab 3 first pane
+[[tabs.panes]]
+command = "{{ $ai }}"
+
+# tab 3 second pane
+[[tabs.panes]]
+command = ""
+split = "right"

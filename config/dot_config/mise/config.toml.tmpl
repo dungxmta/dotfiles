@@ -1,0 +1,59 @@
+{{- /* Global mise tools. ./install.sh fills miseTools (CLI tools whose provider on
+       this profile is mise and that no other provider already installed) and
+       runtimes. Prefer project-local versions in each project's mise.toml. */ -}}
+{{- $mac := eq .chezmoi.os "darwin" -}}
+{{- $keys := dict "neovim" (ternary "neovim" "\"aqua:neovim/neovim\"" $mac) -}}
+{{- $versions := dict "neovim" (ternary "stable" "latest" $mac) "java" "temurin-21" "node" "22" -}}
+{{- /* exact versions pinned in installer/tools/pins.txt ("mise" lines) */ -}}
+{{- range splitList "\n" (include (joinPath .chezmoi.workingTree "installer/tools/pins.txt")) }}
+{{-   $f := regexSplit "\\s+" (trim .) -1 }}
+{{-   if and (eq (len $f) 5) (eq (index $f 0) "mise") (or (eq (index $f 4) "all") (eq (index $f 4) $.chezmoi.os)) }}
+{{-     $_ := set $versions (index $f 1) (index $f 3) }}
+{{-   end }}
+{{- end -}}
+{{- $runtimeKeys := dict "go" "go" "java" "java" "maven" "maven" "python" "python" "nodejs" "node" -}}
+[tools]
+{{- range .miseTools }}
+{{ get $keys . | default . }} = "{{ get $versions . | default "latest" }}"
+{{- end }}
+{{- if .runtimes }}
+
+# languages (global defaults; projects pin their own in mise.toml)
+{{- range .runtimes }}
+{{- $k := get $runtimeKeys . | default . }}
+{{ $k }} = "{{ get $versions $k | default "latest" }}"
+{{- end }}
+{{- end }}
+{{- if $mac }}
+
+[env]
+GHIDRA_INSTALL_DIR = "/opt/homebrew/opt/ghidra/libexec"
+{{- else if eq .profile "linux-dev" }}
+
+# dotfiles
+chezmoi = "latest"
+
+# git
+gh = "latest"
+glab = "latest"
+
+# terminal apps
+"github:joshmedeski/sesh" = "latest" # tmux session picker (prefix + S)
+superfile = "latest"
+herdr = "latest"
+"pypi:posting" = "latest"
+
+# k8s
+kubectl = "latest"
+k9s = "latest"
+kubecm = "latest"
+
+# languages
+"go:github.com/go-delve/delve/cmd/dlv" = "latest"
+uv = "latest"
+bun = "latest"
+
+# AI CLIs
+claude = "latest"
+"github:can1357/oh-my-pi" = { version = "{{ get $versions "omp" | default "latest" }}", bin = "omp" } # pinned: mise cannot verify this one
+{{- end }}

@@ -1,0 +1,72 @@
+add_newline = false
+# A minimal left prompt
+format = """$directory$character"""
+#palette = "catppuccin_mocha"
+# move the rest of the prompt to the right
+right_format = """$all"""
+command_timeout = 1000
+
+# Customize the prompt symbol
+[character]
+#success_symbol = '[➜](bold green) '
+#error_symbol = '[✗](bold red) '
+success_symbol = "[❯](bold green)"
+error_symbol = "[❯](bold red)"
+# vicmd_symbol = "[V](bold green)"
+vicmd_symbol = "[❮](bold green)"
+## fish shell has 6 mode
+# vimcmd_replace_one_symbol = "[❮](bold purple)"
+# vimcmd_replace_symbol = "[❮](bold purple)"
+# vimcmd_visual_symbol = "[❮](bold yellow)"
+
+# Show the current directory
+[directory]
+truncation_length = 3
+
+[git_branch]
+format =  '[$symbol$branch(:$remote_branch)]($style) '
+
+[aws]
+format = '[$symbol(profile: "$profile" )(\(region: $region\) )]($style)'
+disabled = false
+style = 'bold blue'
+symbol = " "
+
+[kubernetes]
+symbol = '☸ '
+disabled = true
+detect_files = ['Dockerfile']
+format = '[$symbol$context( \($namespace\))]($style) '
+
+[docker_context]
+disabled = true
+
+[time]
+time_format = "%T"
+format = " $time($style)"
+style = "bright-white"
+disabled = false
+
+[golang]
+format = '[ $version](bold cyan) '
+#symbol = ' '
+#style = "bold cyan"
+#format = "[$symbol$version]($style)"
+
+#[rust]
+#format = "[$symbol$version]($style) "
+#style = "bold green"
+
+[python]
+#format = "[$symbol$version]($style)"
+#style = "bold green"
+symbol = ' '
+pyenv_version_name = false 
+
+#[typst]
+#format = "[$symbol($version)]($style)"
+#style = "bold #239dae"
+
+#[nodejs]
+#format = "via [🤖 $version](bold green) "
+

@@ -1,0 +1,21 @@
+name = "Edit Config Files"
+description = "Select which config to edit"
+type = "select"
+command = "nvim ~/.config/{{.Value}}"
+
+[[options]]
+label = "zshrc"
+value = "zsh/zshrc"
+
+[[options]]
+label = "nvim config"
+value = "nvim"
+
+[[options]]
+label = "herdr config"
+value = "herdr/config.toml"
+
+[[options]]
+label = "tmux config"
+value = "tmux/tmux.conf"
+

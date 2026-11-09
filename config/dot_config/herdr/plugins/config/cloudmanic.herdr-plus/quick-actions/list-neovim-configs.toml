@@ -1,0 +1,10 @@
+name = "Edit Neovim Configs"
+description = "Select which nvim config to edit"
+type = "select"
+command = "nvim ~/.config/{{.Value}}"
+
+
+[[options]]
+label = "lazyvim"
+value = "nvim/"
+

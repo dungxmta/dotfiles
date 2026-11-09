@@ -1,0 +1,19 @@
+{{- $ai := ternary "opencode" "omp" (eq .chezmoi.os "darwin") -}}
+name = "work" # workspace name
+description = "Main development workspace (New Workspace)"
+working_dir = "{{ if hasKey . "work" }}{{ get .work "projectsDir" | default "~/projects" }}{{ else }}~/projects{{ end }}" # default workspace dir
+
+# default tabs
+[[tabs]]
+name = "1"
+
+[[tabs]]
+name = "2"
+
+[[tabs]]
+name = "{{ $ai }}"
+command = "{{ $ai }}"
+
+[[tabs]]
+name = "lazygit"
+command = "lazygit"
