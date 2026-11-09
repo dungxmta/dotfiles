@@ -1,0 +1,105 @@
+{{- /* Patterns match TARGET paths (relative to ~). A directory needs both `dir/` and `dir/**`.
+       Sparse checkouts already leave unselected modules out; these rules also cover
+       full checkouts and the files Git's cone mode always includes. */ -}}
+{{- $mac := eq .chezmoi.os "darwin" -}}
+{{- $t := .tools -}}
+
+# --- ssh: private keys are never in git ---
+.ssh/id_*
+.ssh/known_hosts
+.ssh/known_hosts.old
+.ssh/agent/
+.ssh/agent/**
+
+# --- nested git repos and noise ---
+**/.git
+**/.git/**
+**/.DS_Store
+**/*.log
+**/*.swp
+**/*.bak
+
+# --- runtime state written by the tools themselves ---
+.config/tmux/plugins/
+.config/tmux/plugins/**
+.config/herdr/plugins/github/
+.config/herdr/plugins/github/**
+.config/herdr/.plugins.lock
+.config/herdr/session.json
+.config/herdr/release-notes.json
+.config/karabiner/automatic_backups/
+.config/karabiner/automatic_backups/**
+.config/kanata/tray-app/kanata-tray
+.config/kitty/session.conf
+
+{{- if eq .profile "tmux-only" }}
+
+# --- tmux-only: nothing but ~/.tmux.conf ---
+*
+.*
+.*/**
+!.tmux.conf
+{{- else }}
+
+{{- if $mac }}
+
+# --- this Mac's public keys (Linux machines make their own: scripts/setup-git.sh) ---
+!.ssh/id_*.pub
+
+# --- Linux-only ---
+.zshenv
+.ssh/mac/
+.ssh/mac/**
+{{- else }}
+
+# --- macOS-only ---
+.zprofile
+.ideavimrc
+{{- range list "ghostty" "kitty" "kanata" "karabiner" "leaderkey" "mouseless" "raycast" "sketchybar" "ideavim" }}
+.config/{{ . }}/
+.config/{{ . }}/**
+{{- end }}
+.config/herdr/plugins.json
+.config/herdr/plugins/config/cloudmanic.herdr-plus/projects/dir-downloads.toml
+.config/herdr/plugins/config/cloudmanic.herdr-plus/quick-actions/browse-*.toml
+.config/herdr/plugins/config/cloudmanic.herdr-plus/quick-actions/mac-*.toml
+.config/herdr/plugins/config/cloudmanic.herdr-plus/quick-actions/script-*.toml
+.config/zsh/lima-vm.zsh
+.config/zsh/completions/
+.config/zsh/completions/**
+{{- end }}
+
+{{- if eq .profile "devpod" }}
+
+# --- extras kept for the main machines only ---
+{{- range list "herdr" "k9s" "superfile" "posting" "dlv" }}
+.config/{{ . }}/
+.config/{{ . }}/**
+{{- end }}
+{{- end }}
+
+# --- deselected tools / variants ---
+{{- if not .dotEnabled }}
+.config/zsh/dot.zsh
+{{- end }}
+{{- if not (has "git" $t) }}
+.gitconfig
+.config/git/
+.config/git/**
+.ssh/
+.ssh/**
+{{- end }}
+{{- range $tool, $dir := dict "lazygit" "lazygit" "starship" "starship" "mise" "mise" "neovim" "nvim" }}
+{{- if not (has $tool $t) }}
+.config/{{ $dir }}/
+.config/{{ $dir }}/**
+{{- end }}
+{{- end }}
+{{- if not (has "tmux" $t) }}
+.tmux.conf
+{{- end }}
+{{- if or (not (has "tmux" $t)) (eq .tmuxVariant "lite") }}
+.config/tmux/
+.config/tmux/**
+{{- end }}
+{{- end }}

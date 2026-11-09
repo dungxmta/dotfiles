@@ -1,0 +1,31 @@
+{{- /*
+  Machine-local state, written by ./install.sh (it passes DOT_* variables).
+  A plain `chezmoi init` keeps the existing values; unknown [data] keys
+  (for example [data.work]) are carried over unchanged.
+*/ -}}
+{{- $d := dict -}}
+{{- range $k, $v := . }}{{ if ne $k "chezmoi" }}{{ $_ := set $d $k $v }}{{ end }}{{ end -}}
+{{- range $pair := list
+      (list "profile" "DOT_PROFILE") (list "checkout" "DOT_CHECKOUT")
+      (list "nvimVariant" "DOT_NVIM") (list "tmuxVariant" "DOT_TMUX")
+      (list "tmuxPrefix" "DOT_TMUX_PREFIX") (list "installMode" "DOT_MODE") }}
+{{-   with env (index $pair 1) }}{{ $_ := set $d (index $pair 0) . }}{{ end }}
+{{- end -}}
+{{- range $pair := list
+      (list "tools" "DOT_TOOLS") (list "runtimes" "DOT_RUNTIMES")
+      (list "miseTools" "DOT_MISE_TOOLS") (list "apps" "DOT_APPS")
+      (list "defaultsSeen" "DOT_DEFAULTS_SEEN") }}
+{{-   with env (index $pair 1) }}{{ $_ := set $d (index $pair 0) (without (splitList "," .) "-" "") }}{{ end }}
+{{- end -}}
+{{- with env "DOT_DOT" }}{{ $_ := set $d "dotEnabled" (eq . "true") }}{{ end -}}
+{{- if and (env "DOT_WORK_HOST") (env "DOT_WORK_EMAIL") }}
+{{-   $w := get $d "work" | default dict }}
+{{-   $_ := set $w "host" (env "DOT_WORK_HOST") }}{{ $_ := set $w "email" (env "DOT_WORK_EMAIL") }}
+{{-   $_ := set $d "work" $w }}
+{{- end -}}
+{{- if not (hasKey $d "profile") }}{{ fail "no profile yet: run ./install.sh from the dotfiles repo" }}{{ end -}}
+{{- range $k := list "tools" "runtimes" "miseTools" "apps" }}{{ if not (hasKey $d $k) }}{{ $_ := set $d $k list }}{{ end }}{{ end -}}
+{{- if not (hasKey $d "dotEnabled") }}{{ $_ := set $d "dotEnabled" false }}{{ end -}}
+sourceDir = {{ env "DOT_REPO" | default .chezmoi.workingTree | quote }}
+
+{{ dict "data" $d | toToml }}
