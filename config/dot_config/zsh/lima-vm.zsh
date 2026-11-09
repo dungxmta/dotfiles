@@ -206,8 +206,9 @@ _limavm_ssh() {
   if (( $#cmd )); then
     limactl shell $opts "$name" "${cmd[@]}"
   else
-    # plain `limactl shell` runs bash; open the user's login shell instead
-    limactl shell $opts "$name" -- sh -c 's=$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f7); exec "${s:-/bin/sh}" -l'
+    # plain `limactl shell` runs bash; open the user's login shell instead, with SHELL
+    # matching it (limactl exports SHELL=/bin/bash, and tmux starts panes with $SHELL)
+    limactl shell $opts "$name" -- sh -c 's=$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f7); s=${s:-/bin/sh}; SHELL=$s exec "$s" -l'
   fi
 }
 
