@@ -1,0 +1,20 @@
+# Machine-local state lives in ~/.config/chezmoi/chezmoi.toml, never here.
+.DS_Store
+dot_DS_Store
+*.swp
+*~
+.idea/
+.vscode/
+*.log
+.chezmoidata/
+
+# Never commit key material or secrets (public repo); public keys are allowed.
+**/*id_*
+!**/*id_*.pub
+!**/*id_*.pub.tmpl
+*.pem
+*.key
+*.p12
+*.kdbx
+.env
+.env.*
