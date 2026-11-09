@@ -1,0 +1,12 @@
+# Personal Mac: full checkout, portable CLI tools from mise, the rest from Homebrew.
+PROFILE_CHECKOUT=full
+PROFILE_SHELL=zsh
+PROFILE_PROVIDERS=mac
+PROFILE_TOOLS="$CLI_TOOLS $EXTRA_TOOLS"
+PROFILE_RUNTIMES="go java maven nodejs"
+PROFILE_NVIM=default
+PROFILE_TMUX=default
+PROFILE_TMUX_PREFIX=C-a
+PROFILE_DOT=true
+PROFILE_APPS_ALLOWED="$MAC_APPS"
+PROFILE_MODULES=""
