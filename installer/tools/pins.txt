@@ -18,8 +18,13 @@ tmux  .tmux/plugins/tmux-which-key                     alexwforsythe/tmux-which-
 tmux  .tmux/plugins/tmux-resurrect                     tmux-plugins/tmux-resurrect      cff343cf9e81983d3da0c8562b01616f12e8d548
 tmux  .tmux/plugins/tmux-continuum                     tmux-plugins/tmux-continuum      0698e8f4b17d6454c71bf5212895ec055c578da0
 #
-# Tool versions for the mise config (config/dot_config/mise/config.toml.tmpl):
+# Tool versions for the mise config (config/dot_config/mise/config.toml.tmpl);
+# pinned by choice, or because mise cannot verify the download (github:, gitlab:, pypi:, bun):
 #   mise  name   mise tool                 version   os (all | darwin | linux)
 mise  omp    github:can1357/oh-my-pi   18.18.3   linux
+mise  sesh   github:joshmedeski/sesh   2.34.0    linux
+mise  glab   glab                      1.128.0   linux
+mise  posting pypi:posting             2.11.1    linux
+mise  bun    bun                       1.4.4     linux
 mise  go     go                        1.25.14   darwin
 mise  maven  maven                     3.10.0    darwin

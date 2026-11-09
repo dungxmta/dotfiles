@@ -36,13 +36,13 @@ chezmoi = "latest"
 
 # git
 gh = "latest"
-glab = "latest"
+glab = "{{ get $versions "glab" | default "latest" }}"
 
 # terminal apps
-"github:joshmedeski/sesh" = "latest" # tmux session picker (prefix + S)
+"github:joshmedeski/sesh" = "{{ get $versions "sesh" | default "latest" }}" # tmux session picker (prefix + S)
 superfile = "latest"
 herdr = "latest"
-"pypi:posting" = "latest"
+"pypi:posting" = "{{ get $versions "posting" | default "latest" }}"
 
 # k8s
 kubectl = "latest"
@@ -52,7 +52,7 @@ kubecm = "latest"
 # languages
 "go:github.com/go-delve/delve/cmd/dlv" = "latest"
 uv = "latest"
-bun = "latest"
+bun = "{{ get $versions "bun" | default "latest" }}"
 
 # AI CLIs
 claude = "latest"
