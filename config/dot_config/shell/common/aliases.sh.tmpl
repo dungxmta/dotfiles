@@ -1,0 +1,91 @@
+{{- /* Portable aliases and functions (POSIX sh), sourced by zshrc after Oh My Zsh
+       so they win over plugin aliases. Zsh-only setup stays in ~/.config/zsh. */ -}}
+{{- $mac := eq .chezmoi.os "darwin" -}}
+{{- $t := .tools -}}
+# Portable aliases and functions; sourced by ~/.config/zsh/zshrc.
+alias k=kubectl
+alias kcm=kubecm
+alias ks='kubecm switch'
+
+alias cl='clear'
+alias la=tree
+{{- if has "bat" $t }}
+alias cat=bat
+{{- end }}
+
+alias c=chezmoi
+
+# LLM
+alias p=omp
+{{- if $mac }}
+alias o=opencode
+{{- end }}
+
+# nvim
+alias vi='nvim'
+alias v='nvim'
+
+# lazygit
+alias lazygit="TERM=xterm-256color command lazygit"
+
+# Git
+alias gc="git commit -m"
+alias gca="git commit -a -m"
+alias gp="git push origin HEAD"
+alias gpu="git pull origin"
+alias gst="git status"
+alias glog="git log --graph --topo-order --pretty='%w(100,0,6)%C(yellow)%h%C(bold)%C(black)%d %C(cyan)%ar %C(green)%an%n%C(bold)%C(white)%s %N' --abbrev-commit"
+alias gdiff="git diff"
+alias gco="git checkout"
+alias gb='git branch'
+alias gba='git branch -a'
+alias gadd='git add'
+alias ga='git add -p'
+alias gcoall='git checkout -- .'
+alias gr='git remote'
+alias gre='git reset'
+{{- if eq .profile "linux-dev" }}
+
+# Containers (podman)
+alias docker=podman
+alias dco="podman compose"
+alias dps="podman ps"
+alias dpa="podman ps -a"
+alias dl="podman ps -l -q"
+alias dx="podman exec -it"
+{{- else }}
+
+# Docker
+alias dco="docker compose"
+alias dps="docker ps"
+alias dpa="docker ps -a"
+alias dl="docker ps -l -q"
+alias dx="docker exec -it"
+{{- end }}
+
+# Dirs
+alias ..="cd .."
+alias ...="cd ../.."
+alias ....="cd ../../.."
+alias .....="cd ../../../.."
+alias ......="cd ../../../../.."
+{{- if has "eza" $t }}
+
+# Eza
+alias l="eza -l --icons --git -a"
+alias lt="eza --tree --level=2 --long --icons --git"
+alias ltree="eza --tree --level=2  --icons --git"
+alias ls="eza --icons=always"
+{{- end }}
+
+# navigation
+cx() { cd "$@" && l; }
+fcd() { cd "$(find . -type d -not -path '*/.*' | fzf)" && l; }
+{{- if $mac }}
+f() { echo "$(find . -type f -not -path '*/.*' | fzf)" | pbcopy; }
+{{- else }}
+# copy to the Mac clipboard over SSH (OSC 52; tmux passes it on with set-clipboard on)
+osc52() { printf '\033]52;c;%s\a' "$(base64 -w0)"; }
+f() { echo "$(find . -type f -not -path '*/.*' | fzf)" | osc52; }
+{{- end }}
+fv() { nvim "$(find . -type f -not -path '*/.*' | fzf)"; }

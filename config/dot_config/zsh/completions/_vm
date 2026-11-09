@@ -1,0 +1,95 @@
+#compdef vm
+# Completion for `vm` (Lima wrapper defined in ../lima-vm.zsh).
+
+# _vm_instances [running|stopped] — instance names described by state; the preferred
+# state is offered as its own group first. `limactl list` is cached for 5 seconds.
+_vm_instances() {
+  local prefer=$1 n st
+  local -a first rest
+  if (( SECONDS - ${_vm_cache_at:--99} > 5 )); then
+    typeset -ga _vm_cache=(${(f)"$(limactl list --format '{{.Name}}:{{.Status}}' 2>/dev/null)"})
+    typeset -g _vm_cache_at=$SECONDS
+  fi
+  for n in $_vm_cache; do
+    st=${n#*:}
+    if [[ -n $prefer && ${(L)st} == $prefer ]]; then first+=($n); else rest+=($n); fi
+  done
+  (( $#first )) && _describe -t "$prefer-instances" "$prefer instance" first
+  (( $#rest )) && _describe -t instances 'instance' rest
+}
+
+_vm_templates() {
+  local d ret=1
+  local -a tpl
+  for d in ${(s.:.)${LIMA_VM_TEMPLATE_DIRS:-$HOME/.config/lima/templates:${HOMEBREW_PREFIX:-/opt/homebrew}/share/lima/templates}}; do
+    tpl+=($d/*.y(a|)ml(N-.:t:r))
+  done
+  _files -g '*.y(a|)ml(-.)' && ret=0
+  (( $#tpl )) && _wanted templates expl 'lima template' compadd -p template: -a tpl && ret=0
+  return ret
+}
+
+_vm() {
+  local curcontext=$curcontext state line ret=1
+  local -a cmds
+  cmds=(
+    'ls:list instances'
+    'ps:status table with IPs'
+    'up:start an instance'
+    'down:stop an instance'
+    'restart:restart an instance'
+    'ssh:shell into an instance or run a command'
+    'edit:edit instance configuration'
+    'create:create an instance from YAML'
+    'clone:clone a stopped instance'
+    'restore:replace an instance with a clone of a baseline'
+    'logs:show instance logs'
+    'rm:delete an instance'
+    'help:show usage'
+  )
+  _arguments -C '1: :->cmd' '*:: :->args' && ret=0
+  case $state in
+    cmd) _describe -t commands 'vm command' cmds && ret=0 ;;
+    args)
+      case $words[1] in
+        up|start)
+          (( CURRENT == 2 )) && _vm_instances stopped && ret=0 ;;
+        down|stop|halt|restart|reload)
+          (( CURRENT == 2 )) && _vm_instances running && ret=0 ;;
+        edit|rm|delete|destroy)
+          (( CURRENT == 2 )) && _vm_instances && ret=0 ;;
+        ssh|shell)
+          if (( CURRENT == 2 )); then
+            _vm_instances && ret=0
+          elif (( CURRENT == 3 )); then
+            compadd -- -- && ret=0
+          fi ;;
+        logs|log)
+          if (( CURRENT == 2 )); then
+            _vm_instances && ret=0
+          else
+            _values 'log' 'ha[host agent stderr]' 'out[host agent stdout]' 'serial[guest console]' && ret=0
+            compadd -- -f && ret=0
+          fi ;;
+        clone)
+          case $CURRENT in
+            2) _vm_instances stopped && ret=0 ;;
+            3) _message 'new instance name' ;;
+          esac ;;
+        create|new)
+          case $CURRENT in
+            2) _message 'new instance name (or a YAML file)'; _vm_templates && ret=0 ;;
+            3) _vm_templates && ret=0 ;;
+          esac ;;
+        restore)
+          case $CURRENT in
+            2) _vm_instances && ret=0 ;;
+            3) compadd -- --from && ret=0 ;;
+            4) _vm_instances stopped && ret=0 ;;
+          esac ;;
+      esac ;;
+  esac
+  return ret
+}
+
+_vm "$@"

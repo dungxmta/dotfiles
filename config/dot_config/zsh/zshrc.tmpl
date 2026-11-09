@@ -1,0 +1,255 @@
+{{- /* Rendered per machine by chezmoi. Mac and Linux branches keep each machine's
+     previous zshrc; has-checks only drop lines for tools deselected in ./install.sh. */ -}}
+{{- $mac := eq .chezmoi.os "darwin" -}}
+{{- $t := .tools -}}
+# Curated history: on = no automatic history files; zsh history is loaded from
+# ~/.history/zsh (add the previous command with `hkeep`); python/less/node REPL history off.
+# off = oh-my-zsh defaults (~/.zsh_history). Per-shell override: ZSH_CURATED_HISTORY=off zsh
+# (REPL vars are exported: a nested off shell inherits them; use `env -u PYTHON_HISTORY -u LESSHISTFILE -u NODE_REPL_HISTORY`).
+: ${ZSH_CURATED_HISTORY:=on}
+
+# If you come from bash you might have to change your $PATH.
+# export PATH=$HOME/bin:/usr/local/bin:$PATH
+
+# Path to your oh-my-zsh installation.
+export ZSH="$HOME/.oh-my-zsh"
+
+# Set name of the theme to load --- if set to "random", it will
+# load a random theme each time oh-my-zsh is loaded, in which case,
+# to know which specific one was loaded, run: echo $RANDOM_THEME
+# See https://github.com/ohmyzsh/ohmyzsh/wiki/Themes
+ZSH_THEME="" # prompt: Starship (below)
+
+# Set list of themes to pick from when loading at random
+# Setting this variable when ZSH_THEME=random will cause zsh to load
+# a theme from this variable instead of looking in $ZSH/themes/
+# If set to an empty array, this variable will have no effect.
+# ZSH_THEME_RANDOM_CANDIDATES=( "robbyrussell" "agnoster" )
+
+# Uncomment the following line to use case-sensitive completion.
+# CASE_SENSITIVE="true"
+
+# Uncomment the following line to use hyphen-insensitive completion.
+# Case-sensitive completion must be off. _ and - will be interchangeable.
+# HYPHEN_INSENSITIVE="true"
+
+# Uncomment one of the following lines to change the auto-update behavior
+# zstyle ':omz:update' mode disabled  # disable automatic updates
+# zstyle ':omz:update' mode auto      # update automatically without asking
+zstyle ':omz:update' mode reminder  # no self-update: plugins are pinned, ./install.sh --upgrade moves them
+
+# Uncomment the following line to change how often to auto-update (in days).
+zstyle ':omz:update' frequency 7
+
+# Uncomment the following line if pasting URLs and other text is messed up.
+# DISABLE_MAGIC_FUNCTIONS="true"
+
+# Uncomment the following line to disable colors in ls.
+# DISABLE_LS_COLORS="true"
+
+# Uncomment the following line to disable auto-setting terminal title.
+# DISABLE_AUTO_TITLE="true"
+
+# Uncomment the following line to enable command auto-correction.
+# ENABLE_CORRECTION="true"
+
+# Uncomment the following line to display red dots whilst waiting for completion.
+# You can also set it to another string to have that shown instead of the default red dots.
+# e.g. COMPLETION_WAITING_DOTS="%F{yellow}waiting...%f"
+# Caution: this setting can cause issues with multiline prompts in zsh < 5.7.1 (see #5765)
+# COMPLETION_WAITING_DOTS="true"
+
+# Uncomment the following line if you want to disable marking untracked files
+# under VCS as dirty. This makes repository status check for large repositories
+# much, much faster.
+# DISABLE_UNTRACKED_FILES_DIRTY="true"
+
+# Uncomment the following line if you want to change the command execution time
+# stamp shown in the history command output.
+# You can set one of the optional three formats:
+# "mm/dd/yyyy"|"dd.mm.yyyy"|"yyyy-mm-dd"
+# or set a custom format using the strftime function format specifications,
+# see 'man strftime' for details.
+# HIST_STAMPS="mm/dd/yyyy"
+
+# Would you like to use another custom folder than $ZSH/custom?
+# ZSH_CUSTOM=/path/to/new-custom-folder
+
+# Which plugins would you like to load?
+# Standard plugins can be found in $ZSH/plugins/
+# Custom plugins may be added to $ZSH_CUSTOM/plugins/
+# Example format: plugins=(rails git textmate ruby lighthouse)
+# Add wisely, as too many plugins slow down shell startup.
+plugins=(git zsh-autosuggestions zsh-syntax-highlighting zsh-vi-mode)
+
+fpath+=${ZSH_CUSTOM:-${ZSH:-~/.oh-my-zsh}/custom}/plugins/zsh-completions/src
+{{- if $mac }}
+fpath=("$HOME/.config/zsh/completions" $fpath) # _vm (lima-vm.zsh); before compinit in oh-my-zsh
+{{- end }}
+
+# cache for slow generated init (kubectl completion, macOS SDK path)
+_zsh_cache="${XDG_CACHE_HOME:-$HOME/.cache}/zsh"
+[[ -d $_zsh_cache ]] || mkdir -p "$_zsh_cache"
+{{- if has "mise" $t }}
+
+## tool version manager: activate before oh-my-zsh so later hooks find mise's binaries
+eval "$(mise activate zsh)"
+{{- end }}
+
+source $ZSH/oh-my-zsh.sh
+
+## history (flag ZSH_CURATED_HISTORY at top of file)
+ZSH_CURATED_HISTFILE="$HOME/.history/zsh"
+if [[ $ZSH_CURATED_HISTORY == on ]]; then
+  unset HISTFILE
+  SAVEHIST=0
+  [[ -r $ZSH_CURATED_HISTFILE ]] && fc -R "$ZSH_CURATED_HISTFILE"
+  export PYTHON_HISTORY=/dev/null LESSHISTFILE=- NODE_REPL_HISTORY=''
+fi
+
+# Append the previous command to the curated history file.
+hkeep() {
+  local cmd=${history[$((HISTCMD - 1))]}
+  if [[ -z $cmd || $cmd == hkeep(| *) ]]; then
+    print -u2 "hkeep: no previous command to keep"
+    return 1
+  fi
+  local file=$ZSH_CURATED_HISTFILE
+  [[ -d ${file:h} ]] || mkdir -m 700 -p -- "${file:h}"
+  if [[ $cmd != *$'\n'* && -f $file ]] && grep -qxF -- "$cmd" "$file"; then
+    print "hkeep: already kept"
+    return 0
+  fi
+  local nl=$'\n'
+  (umask 077; print -r -- "${cmd//$nl/\\$nl}" >>"$file")
+  print -r -- "hkeep: kept: $cmd"
+}
+
+# Key bindings: zsh-vi-mode initializes lazily and resets bindings, so apply
+# ours from its after-init hook (or right away when the plugin is missing).
+_my_bindkeys() {
+  bindkey '^w' autosuggest-execute
+  bindkey '^e' autosuggest-accept
+  bindkey '^u' autosuggest-toggle
+  bindkey '^L' vi-forward-word
+  bindkey '^k' up-line-or-search
+  bindkey '^j' down-line-or-search
+  # fzf history search (fzf.zsh, sourced below), also reset by zsh-vi-mode
+  (( $+functions[fzf-history-widget] )) && bindkey '^r' fzf-history-widget
+}
+if (( $+functions[zvm_init] )); then
+  zvm_after_init_commands+=(_my_bindkeys)
+else
+  _my_bindkeys
+fi
+
+# User configuration
+
+# export MANPATH="/usr/local/man:$MANPATH"
+
+# You may need to manually set your language environment
+# export LANG=en_US.UTF-8
+{{- if $mac }}
+
+# Preferred editor for local and remote sessions
+if [[ -n $SSH_CONNECTION ]]; then
+  export EDITOR='vim'
+else
+  export EDITOR='nvim'
+fi
+{{- else }}
+
+# Preferred editor
+export EDITOR='nvim'
+{{- end }}
+
+# Compilation flags
+# export ARCHFLAGS="-arch x86_64"
+
+# Set personal aliases, overriding those provided by oh-my-zsh libs,
+# plugins, and themes. Aliases can be placed here, though oh-my-zsh
+# users are encouraged to define aliases within the ZSH_CUSTOM folder.
+# For a full list of active aliases, run `alias`.
+#
+# Example aliases
+# alias zshconfig="mate ~/.zshrc"
+# alias ohmyzsh="mate ~/.oh-my-zsh"
+
+##
+# CUSTOM CONFIG
+##
+
+#source ~/.zsh/zsh-autosuggestions/zsh-autosuggestions.zsh
+# machine-local, never in git (work aliases, kube contexts); created empty by chezmoi
+source ~/.config/zsh/private.zsh
+{{- if $mac }}
+
+# Lima VM management
+source "$HOME/.config/zsh/lima-vm.zsh"
+{{- end }}
+{{- if .dotEnabled }}
+
+# dot: chezmoi/dotfiles helper (enabled in ./install.sh)
+source "$HOME/.config/zsh/dot.zsh"
+{{- end }}
+
+## aliases and functions shared with other shells
+source "$HOME/.config/shell/common/aliases.sh"
+alias reload-zsh="source ~/.zshrc"
+export XDG_CONFIG_HOME="$HOME/.config"
+
+## k8s (completion regenerated when the kubectl binary changes)
+if (( $+commands[kubectl] )); then
+  [[ $_zsh_cache/kubectl.zsh -nt $commands[kubectl] ]] || kubectl completion zsh >|"$_zsh_cache/kubectl.zsh"
+  source "$_zsh_cache/kubectl.zsh"
+  compdef _kubectl k
+fi
+{{- if $mac }}
+
+export PATH=$PATH:~/.local/bin
+{{- end }}
+[[ ! -f ~/.kubecm ]] || source ~/.kubecm
+{{- if $mac }}
+
+# lib C installed by homebrew (SDK path cached; delete the cache after an Xcode change)
+export LIBRARY_PATH="$HOMEBREW_PREFIX/lib:/usr/lib"
+[[ -s $_zsh_cache/sdk-path ]] || xcrun --show-sdk-path >|"$_zsh_cache/sdk-path" 2>/dev/null
+export CPATH="$HOMEBREW_PREFIX/include:$(<"$_zsh_cache/sdk-path")/usr/include"
+{{- end }}
+
+## golang: binaries from `go install`
+(( $+commands[go] )) && export PATH="$PATH:$(go env GOPATH)/bin"
+{{- if has "direnv" $t }}
+
+## direnv (native hook)
+(( $+commands[direnv] )) && eval "$(direnv hook zsh)"
+{{- end }}
+{{- if has "fzf" $t }}
+
+## fzf
+source "$HOME/.config/zsh/fzf.zsh"
+{{- end }}
+{{- if has "starship" $t }}
+
+## prompt
+export STARSHIP_CONFIG="$HOME/.config/starship/starship.toml"
+eval "$(starship init zsh)"
+{{- end }}
+{{- if has "zoxide" $t }}
+
+## cd
+eval "$(zoxide init zsh)"
+alias cd="z"
+{{- end }}
+{{- if $mac }}
+
+## file manager
+function y() {
+	local tmp="$(mktemp -t "yazi-cwd.XXXXXX")" cwd
+	yazi "$@" --cwd-file="$tmp"
+	if cwd="$(command cat -- "$tmp")" && [ -n "$cwd" ] && [ "$cwd" != "$PWD" ]; then
+		builtin cd -- "$cwd"
+	fi
+	rm -f -- "$tmp"
+}
+{{- end }}

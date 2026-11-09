@@ -1,0 +1,4 @@
+# Every zsh, including non-interactive ones (ssh vm cmd, scripts, editors spawned by
+# git/lazygit): mise tools through shims. Interactive shells also run
+# `mise activate` in ~/.config/zsh/zshrc, which puts the real install dirs first.
+export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
