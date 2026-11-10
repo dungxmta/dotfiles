@@ -1,3 +1,50 @@
+-- How jdtls picks its JDKs:
+-- * jdtls itself (needs Java 25+):
+--     1. $JDTLS_JAVA_HOME if set
+--     2. else newest JDK in find_jdks() dirs, if >= 25
+--     3. else warn and fall back to `java` on PATH
+-- * Project runtime: the `java` your shell resolves in the project dir (any version
+--   manager, e.g. mise pin) is the default; it is added even if outside find_jdks() dirs
+-- * Other JDKs in find_jdks() dirs are registered too, for projects targeting them
+-- * Using another tool (sdkman, asdf...)? add its install dir to find_jdks(), or set $JDTLS_JAVA_HOME
+
+-- Major Java version of a JDK home, read from its `release` file
+local function jdk_major(home)
+  if not vim.uv.fs_stat(home .. "/release") then
+    return nil
+  end
+  local version = table.concat(vim.fn.readfile(home .. "/release"), "\n"):match('JAVA_VERSION="([%d.]+)')
+  return version and tonumber(version:match("^1%.(%d+)") or version:match("^(%d+)"))
+end
+
+-- JDK homes found in version-manager install dirs (add a line if you start using another tool)
+local function find_jdks()
+  local jdks, seen = {}, {}
+  for _, pattern in ipairs({ "~/.local/share/mise/installs/java/*" }) do
+    for _, path in ipairs(vim.fn.glob(pattern, false, true)) do
+      local home = vim.uv.fs_realpath(path) -- dedupe alias symlinks (temurin-21 -> temurin-21.0.13...)
+      local major = home and not seen[home] and jdk_major(home)
+      if major then
+        seen[home] = true
+        table.insert(jdks, { major = major, home = home })
+      end
+    end
+  end
+  table.sort(jdks, function(a, b)
+    return a.major > b.major
+  end)
+  return jdks
+end
+
+-- JDK that `java` resolves to in this shell/cwd (works through any version manager or shim)
+local function shell_java_home()
+  local ok, res = pcall(function()
+    return vim.system({ "java", "-XshowSettings:properties", "-version" }, { text = true }):wait()
+  end)
+  local home = ok and res.stderr and res.stderr:match("java%.home = ([^\n]+)")
+  return home and vim.uv.fs_realpath(home) or nil
+end
+
 return {
   {
     "mason-org/mason.nvim",
@@ -16,8 +63,52 @@ return {
           end,
         })
 
+        local jdks = find_jdks()
+
+        -- jdtls itself needs Java 25+; override with JDTLS_JAVA_HOME
+        local min_launcher_major = 25
+        local launcher = vim.env.JDTLS_JAVA_HOME
+        if not launcher and jdks[1] and jdks[1].major >= min_launcher_major then
+          launcher = jdks[1].home
+        end
+        if launcher then
+          -- passed as an arg: JAVA_HOME gets overridden by version-manager shims (mise python3)
+          table.insert(opts.cmd, 2, "--java-executable=" .. launcher .. "/bin/java")
+        else
+          vim.notify(
+            "jdtls: no Java " .. min_launcher_major .. "+ found, using java on PATH (set JDTLS_JAVA_HOME)",
+            vim.log.levels.WARN
+          )
+        end
+
+        -- project runtime: shell's java is default; other installed JDKs available for projects targeting them
+        local default_home = shell_java_home()
+        if default_home and not vim.iter(jdks):any(function(jdk)
+          return jdk.home == default_home
+        end) then
+          local major = jdk_major(default_home)
+          if major then
+            table.insert(jdks, 1, { major = major, home = default_home })
+          end
+        end
+        -- shell's JDK first so it wins when several JDKs share a major version
+        table.sort(jdks, function(a, b)
+          return a.home == default_home and b.home ~= default_home
+        end)
+        local runtimes, by_major = {}, {}
+        for _, jdk in ipairs(jdks) do
+          if not by_major[jdk.major] then
+            by_major[jdk.major] = true
+            local name = jdk.major <= 8 and ("JavaSE-1." .. jdk.major) or ("JavaSE-" .. jdk.major)
+            table.insert(runtimes, { name = name, path = jdk.home, default = jdk.home == default_home or nil })
+          end
+        end
+
         opts.settings = {
           java = {
+            configuration = {
+              runtimes = runtimes,
+            },
             format = {
               enabled = true,
               settings = {

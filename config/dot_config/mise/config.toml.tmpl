@@ -13,6 +13,11 @@
 {{-   end }}
 {{- end -}}
 {{- $runtimeKeys := dict "go" "go" "java" "java" "maven" "maven" "python" "python" "nodejs" "node" -}}
+{{- /* Extra versions: installed but not active (in a mise list the first version is
+       the default). Keep java temurin-25: Neovim's jdtls (Mason) needs Java 25+ to
+       run itself, while projects still pin older JDKs. The nvim config finds it in
+       the mise install dir (config/dot_config/nvim/lua/plugins/java.lua). */ -}}
+{{- $extraVersions := dict "java" "temurin-25" -}}
 [tools]
 {{- range .miseTools }}
 {{ get $keys . | default . }} = "{{ get $versions . | default "latest" }}"
@@ -22,7 +27,11 @@
 # languages (global defaults; projects pin their own in mise.toml)
 {{- range .runtimes }}
 {{- $k := get $runtimeKeys . | default . }}
+{{- if hasKey $extraVersions $k }}
+{{ $k }} = ["{{ get $versions $k | default "latest" }}", "{{ get $extraVersions $k }}"] # extra: nvim jdtls needs Java 25+ (see nvim/lua/plugins/java.lua)
+{{- else }}
 {{ $k }} = "{{ get $versions $k | default "latest" }}"
+{{- end }}
 {{- end }}
 {{- end }}
 {{- if $mac }}
