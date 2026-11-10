@@ -103,6 +103,11 @@ _zsh_cache="${XDG_CACHE_HOME:-$HOME/.cache}/zsh"
 eval "$(mise activate zsh)"
 {{- end }}
 
+## nvim jdtls launcher JDK (needs Java 25+). Not needed by default: java.lua finds
+## it in the mise install dir. Set only if that JDK lives outside mise (e.g. Homebrew).
+## Don't set JAVA_HOME here: mise activate sets it per project.
+# export JDTLS_JAVA_HOME="/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home"
+
 source $ZSH/oh-my-zsh.sh
 
 ## history (flag ZSH_CURATED_HISTORY at top of file)

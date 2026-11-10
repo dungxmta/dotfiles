@@ -3,7 +3,10 @@
        runtimes. Prefer project-local versions in each project's mise.toml. */ -}}
 {{- $mac := eq .chezmoi.os "darwin" -}}
 {{- $keys := dict "neovim" (ternary "neovim" "\"aqua:neovim/neovim\"" $mac) -}}
-{{- $versions := dict "neovim" (ternary "stable" "latest" $mac) "java" "temurin-21" "node" "22" -}}
+{{- /* java 25: Neovim's jdtls (Mason) needs Java 25+ to run itself; projects pin
+       their own JDK in mise.toml. Don't lower it below what jdtls requires
+       (see config/dot_config/nvim/lua/plugins/java.lua). */ -}}
+{{- $versions := dict "neovim" (ternary "stable" "latest" $mac) "java" "temurin-25" "node" "22" -}}
 {{- /* exact versions pinned in installer/tools/pins.txt ("mise" lines) */ -}}
 {{- range splitList "\n" (include (joinPath .chezmoi.workingTree "installer/tools/pins.txt")) }}
 {{-   $f := regexSplit "\\s+" (trim .) -1 }}
@@ -13,11 +16,6 @@
 {{-   end }}
 {{- end -}}
 {{- $runtimeKeys := dict "go" "go" "java" "java" "maven" "maven" "python" "python" "nodejs" "node" -}}
-{{- /* Extra versions: installed but not active (in a mise list the first version is
-       the default). Keep java temurin-25: Neovim's jdtls (Mason) needs Java 25+ to
-       run itself, while projects still pin older JDKs. The nvim config finds it in
-       the mise install dir (config/dot_config/nvim/lua/plugins/java.lua). */ -}}
-{{- $extraVersions := dict "java" "temurin-25" -}}
 [tools]
 {{- range .miseTools }}
 {{ get $keys . | default . }} = "{{ get $versions . | default "latest" }}"
@@ -27,11 +25,7 @@
 # languages (global defaults; projects pin their own in mise.toml)
 {{- range .runtimes }}
 {{- $k := get $runtimeKeys . | default . }}
-{{- if hasKey $extraVersions $k }}
-{{ $k }} = ["{{ get $versions $k | default "latest" }}", "{{ get $extraVersions $k }}"] # extra: nvim jdtls needs Java 25+ (see nvim/lua/plugins/java.lua)
-{{- else }}
-{{ $k }} = "{{ get $versions $k | default "latest" }}"
-{{- end }}
+{{ $k }} = "{{ get $versions $k | default "latest" }}"{{ if eq $k "java" }} # nvim jdtls needs Java 25+ (see nvim/lua/plugins/java.lua){{ end }}
 {{- end }}
 {{- end }}
 {{- if $mac }}
