@@ -1,2 +1,3 @@
-# Set PATH, MANPATH, etc., for Homebrew.
-eval "$(/opt/homebrew/bin/brew shellenv)"
+# Set PATH, MANPATH, etc., for Homebrew, unless /etc/zprofile already did
+# (some managed Macs add it there).
+[[ "$(</etc/zprofile)" == *'brew shellenv'* ]] 2>/dev/null || eval "$(/opt/homebrew/bin/brew shellenv)"

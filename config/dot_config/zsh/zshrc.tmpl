@@ -93,6 +93,11 @@ fpath+=${ZSH_CUSTOM:-${ZSH:-~/.oh-my-zsh}/custom}/plugins/zsh-completions/src
 {{- if $mac }}
 fpath=("$HOME/.config/zsh/completions" $fpath) # _vm (lima-vm.zsh); before compinit in oh-my-zsh
 {{- end }}
+{{- if eq .profile "mac-work" }}
+# /opt/homebrew belongs to the IT admin account, so compaudit flags its completions as
+# insecure and the counts in .zcompdump never match: compinit rebuilt it every shell (~0.6s).
+ZSH_DISABLE_COMPFIX=true
+{{- end }}
 
 # cache for slow generated init (kubectl completion, macOS SDK path)
 _zsh_cache="${XDG_CACHE_HOME:-$HOME/.cache}/zsh"
