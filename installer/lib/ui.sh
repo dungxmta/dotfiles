@@ -40,7 +40,7 @@ choose_one() {
   if use_fzf; then
     a="$(for opt in "$@"; do printf '%s\n' "$opt"; done |
       fzf --height=~12 --reverse --no-multi --prompt="$q > " \
-        --bind "load:pos($(_pos "$def" "$@"))" </dev/tty 2>/dev/tty)" || a="$def"
+        --bind "load:pos($(_pos "$def" "$@"))" 2>/dev/tty)" || a="$def"
   else
     printf '? %s\n' "$q" >/dev/tty
     i=0
@@ -80,7 +80,7 @@ choose_many() {
     # "(none)" comes last; choosing it (alone or with others) means no items.
     out="$(for opt in $opts "(none)"; do printf '%s\n' "$opt"; done |
       fzf --multi --height=~25 --reverse --prompt="$q > " --header='Tab: toggle  Enter: accept' \
-        --bind "load:${act}first" </dev/tty 2>/dev/tty)" || { echo $sel; return; }
+        --bind "load:${act}first" 2>/dev/tty)" || { echo $sel; return; }
     case "$out" in *"(none)"*) out="" ;; esac
     echo $out
     return
