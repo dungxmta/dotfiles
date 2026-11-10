@@ -26,13 +26,3 @@ dot_DS_Store
 **/private_dot_kube/
 **/*_key
 !**/*_key.pub
-
-# Claude Code: track only hand-written config; transcripts, history and
-# ~/.claude.json hold code, prompts and account data.
-config/dot_config/private_claude/*
-!config/dot_config/private_claude/settings.json
-!config/dot_config/private_claude/plugins/
-config/dot_config/private_claude/plugins/*
-!config/dot_config/private_claude/plugins/claude-hud/
-config/dot_config/private_claude/plugins/claude-hud/*
-!config/dot_config/private_claude/plugins/claude-hud/config.json
