@@ -18,6 +18,7 @@
 {{-   with env (index $pair 1) }}{{ $_ := set $d (index $pair 0) (without (splitList "," .) "-" "") }}{{ end }}
 {{- end -}}
 {{- with env "DOT_DOT" }}{{ $_ := set $d "dotEnabled" (eq . "true") }}{{ end -}}
+{{- with env "DOT_AGENTS" }}{{ $_ := set $d "agentsEnabled" (eq . "true") }}{{ end -}}
 {{- if and (env "DOT_WORK_HOST") (env "DOT_WORK_EMAIL") }}
 {{-   $w := get $d "work" | default dict }}
 {{-   $_ := set $w "host" (env "DOT_WORK_HOST") }}{{ $_ := set $w "email" (env "DOT_WORK_EMAIL") }}
@@ -26,6 +27,7 @@
 {{- if not (hasKey $d "profile") }}{{ fail "no profile yet: run ./install.sh from the dotfiles repo" }}{{ end -}}
 {{- range $k := list "tools" "runtimes" "miseTools" "apps" }}{{ if not (hasKey $d $k) }}{{ $_ := set $d $k list }}{{ end }}{{ end -}}
 {{- if not (hasKey $d "dotEnabled") }}{{ $_ := set $d "dotEnabled" false }}{{ end -}}
+{{- if not (hasKey $d "agentsEnabled") }}{{ $_ := set $d "agentsEnabled" false }}{{ end -}}
 sourceDir = {{ env "DOT_REPO" | default .chezmoi.workingTree | quote }}
 
 {{ dict "data" $d | toToml }}

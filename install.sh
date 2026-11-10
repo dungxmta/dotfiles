@@ -13,6 +13,9 @@ usage: ./install.sh [options]
   --select-tools        only ask for tools; keep the other saved answers
   --with-dot            source the `dot` helper in zsh
   --without-dot         stop sourcing it (the file is left in place)
+  --with-agents         clone the agents repo (agent config + skills) and run
+                        its installer; $AGENTS_DIR, default ~/SYNC/agents
+  --without-agents      stop syncing it (links and the clone are left in place)
   --configure-only      this run only: apply configuration, install no packages
   --checkout full|sparse
   --sync                no questions: reuse saved answers, offer new profile
@@ -36,7 +39,7 @@ EOF
 }
 
 REPO="$(cd "$(dirname "$0")" && pwd)"
-OPT_PROFILE="" OPT_TOOLS="" OPT_DOT="" OPT_CHECKOUT="" OPT_MODE=""
+OPT_PROFILE="" OPT_TOOLS="" OPT_DOT="" OPT_AGENTS="" OPT_CHECKOUT="" OPT_MODE=""
 SYNC=false UPGRADE=false DRY_RUN=false ASSUME_YES=false SELECT_TOOLS=false
 OUTDATED_ONLY=false UPGRADE_ALL=false UPGRADE_NAMES=""
 while [ $# -gt 0 ]; do
@@ -46,6 +49,8 @@ while [ $# -gt 0 ]; do
     --select-tools) SELECT_TOOLS=true ;;
     --with-dot) OPT_DOT=true ;;
     --without-dot) OPT_DOT=false ;;
+    --with-agents) OPT_AGENTS=true ;;
+    --without-agents) OPT_AGENTS=false ;;
     --configure-only) OPT_MODE=configure ;;
     --checkout) OPT_CHECKOUT="${2:?--checkout needs full or sparse}"; shift ;;
     --sync) SYNC=true ;;
@@ -85,10 +90,12 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles"
 BACKUP_DIR="$STATE_DIR/backup/$STAMP"
 CZ_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/chezmoi/chezmoi.toml"
+AGENTS_DIR="${AGENTS_DIR:-$HOME/SYNC/agents}"
+AGENTS_URL="https://github.com/dungxmta/agents.git"
 
 # --- saved state ----------------------------------------------------------------
 
-S_PROFILE="" S_TOOLS="" S_RUNTIMES="" S_APPS="" S_NVIM="" S_TMUX="" S_PREFIX="" S_DOT="" S_MODE=""
+S_PROFILE="" S_TOOLS="" S_RUNTIMES="" S_APPS="" S_NVIM="" S_TMUX="" S_PREFIX="" S_DOT="" S_AGENTS="" S_MODE=""
 S_CHECKOUT="" S_SEEN="" S_WORK=""
 load_state() {
   [ -f "$CZ_CONFIG" ] && has chezmoi || return 0
@@ -102,6 +109,7 @@ S_NVIM={{ get . "nvimVariant" }}
 S_TMUX={{ get . "tmuxVariant" }}
 S_PREFIX={{ get . "tmuxPrefix" }}
 S_DOT={{ get . "dotEnabled" }}
+S_AGENTS={{ get . "agentsEnabled" }}
 S_MODE={{ get . "installMode" }}
 S_CHECKOUT={{ get . "checkout" }}
 S_SEEN={{ get . "defaultsSeen" | default list | join " " }}
@@ -123,7 +131,7 @@ write_state() {
   DOT_REPO="$REPO" DOT_PROFILE="$PROFILE" DOT_CHECKOUT="$CHECKOUT" \
     DOT_TOOLS="$(csv "$TOOLS")" DOT_RUNTIMES="$(csv "$RUNTIMES")" DOT_APPS="$(csv "$APPS")" \
     DOT_MISE_TOOLS="$(csv "$PLAN_MISE")" DOT_DEFAULTS_SEEN="$(csv "$PROFILE_TOOLS")" \
-    DOT_NVIM="$NVIM" DOT_TMUX="$TMUX_VARIANT" DOT_TMUX_PREFIX="$PREFIX" DOT_DOT="$DOT" DOT_MODE="$SAVED_MODE" \
+    DOT_NVIM="$NVIM" DOT_TMUX="$TMUX_VARIANT" DOT_TMUX_PREFIX="$PREFIX" DOT_DOT="$DOT" DOT_AGENTS="$AGENTS" DOT_MODE="$SAVED_MODE" \
     DOT_WORK_HOST="${WORK_HOST:-}" DOT_WORK_EMAIL="${WORK_EMAIL:-}" \
     chezmoi --config "$1" --source "$REPO" init --no-tty >/dev/null
 }
@@ -156,10 +164,11 @@ if [ "$same" = true ]; then
   TOOLS="$S_TOOLS" RUNTIMES="$S_RUNTIMES" APPS="$S_APPS" NVIM="${S_NVIM:-$PROFILE_NVIM}"
   TMUX_VARIANT="${S_TMUX:-$PROFILE_TMUX}" PREFIX="${S_PREFIX:-$PROFILE_TMUX_PREFIX}"
   DOT="${S_DOT:-$PROFILE_DOT}" MODE="${S_MODE:-install}" CHECKOUT="${S_CHECKOUT:-$PROFILE_CHECKOUT}"
+  AGENTS="${S_AGENTS:-false}"
 else
   TOOLS="$PROFILE_TOOLS" RUNTIMES="$PROFILE_RUNTIMES" APPS="" NVIM="$PROFILE_NVIM"
   TMUX_VARIANT="$PROFILE_TMUX" PREFIX="$PROFILE_TMUX_PREFIX" DOT="$PROFILE_DOT" MODE=install
-  CHECKOUT="$PROFILE_CHECKOUT"
+  CHECKOUT="$PROFILE_CHECKOUT" AGENTS=false  # agents: opt-in on every profile
 fi
 # First run on an ordinary full clone: keep it full unless --checkout sparse.
 [ -z "$S_CHECKOUT" ] && [ -e "$REPO/.git" ] && ! is_sparse && CHECKOUT=full
@@ -198,7 +207,7 @@ ask_prefix() {
 ask=false
 interactive && [ "$SYNC" != true ] && ask=true
 if [ "$PROFILE" = tmux-only ]; then
-  TOOLS=tmux RUNTIMES="" APPS="" NVIM=none TMUX_VARIANT=lite DOT=false MODE=configure
+  TOOLS=tmux RUNTIMES="" APPS="" NVIM=none TMUX_VARIANT=lite DOT=false AGENTS=false MODE=configure
   [ "$ask" = true ] && ask_prefix
 elif [ "$ask" = true ]; then
   TOOLS="$(choose_many "Select tools" "$TOOLS" "$CLI_TOOLS $EXTRA_TOOLS")"
@@ -212,6 +221,8 @@ elif [ "$ask" = true ]; then
     fi
     d="$(choose_one "Install dot CLI helper?" "$([ "$DOT" = true ] && echo Yes || echo No)" Yes No)"
     [ "$d" = Yes ] && DOT=true || DOT=false
+    d="$(choose_one "Install AI agent config + skills (agents repo)?" "$([ "$AGENTS" = true ] && echo Yes || echo No)" No Yes)"
+    [ "$d" = Yes ] && AGENTS=true || AGENTS=false
     m="$(choose_one "Installation mode" "$([ "$MODE" = configure ] && echo "Configure only" || echo "Install + configure")" \
       "Install + configure" "Configure only")"
     [ "$m" = "Configure only" ] && MODE=configure || MODE=install
@@ -229,12 +240,14 @@ case "$PREFIX" in C-[a-z] | M-[a-z] | C-Space) ;; *) die "invalid tmux prefix: '
 
 [ -n "$OPT_TOOLS" ] && TOOLS="$OPT_TOOLS"
 [ -n "$OPT_DOT" ] && DOT="$OPT_DOT"
+[ -n "$OPT_AGENTS" ] && AGENTS="$OPT_AGENTS"
 SAVED_MODE="$MODE"  # --configure-only applies to this run only
 [ -n "$OPT_MODE" ] && MODE="$OPT_MODE"
 [ -n "$OPT_CHECKOUT" ] && CHECKOUT="$OPT_CHECKOUT"
 if [ "$PROFILE" = tmux-only ]; then
   [ "$DOT" = true ] && warn "the dot helper is not available on tmux-only"
-  DOT=false TOOLS=tmux MODE=configure
+  [ "$AGENTS" = true ] && warn "the agents repo is not available on tmux-only"
+  DOT=false AGENTS=false TOOLS=tmux MODE=configure
 fi
 for id in $TOOLS; do in_list "$id" "$CLI_TOOLS $EXTRA_TOOLS" || die "unknown tool: $id"; done
 for id in $RUNTIMES; do in_list "$id" "$RUNTIMES_ALL" || die "unknown runtime: $id"; done
@@ -281,6 +294,7 @@ if [ "$PROFILE" = tmux-only ]; then say "  Tools:      none (~/.tmux.conf only)"
 [ -n "$APPS" ] && say "  Apps:       $APPS"
 say "  Neovim:     $NVIM    tmux: $TMUX_VARIANT ($PREFIX)"
 say "  Dot helper: $([ "$DOT" = true ] && echo enabled || echo disabled)"
+say "  Agents:     $([ "$AGENTS" = true ] && echo "$AGENTS_DIR (agent config + skills)" || echo disabled)"
 say "  Mode:       $([ "$MODE" = install ] && echo "install + configure" || echo "configure only")"
 if [ "$MODE" = install ]; then
   say "  Packages (missing only, nothing is upgraded):"
@@ -418,6 +432,20 @@ elif [ "$PROFILE_SHELL" = zsh ]; then
   . "$REPO/installer/lib/shell.sh"
   setup_zsh
   in_list tmux "$TOOLS" && [ "$TMUX_VARIANT" = default ] && setup_tpm
+fi
+
+if [ "$AGENTS" = true ]; then
+  step "Agents"
+  if [ "$DRY_RUN" = true ]; then
+    say "(dry run) would $([ -d "$AGENTS_DIR/.git" ] || echo "clone $AGENTS_URL to $AGENTS_DIR and ")run its install.sh"
+  else
+    # public HTTPS clone; ~/.gitconfig would rewrite it to SSH (see pgit in lib/shell.sh)
+    [ -d "$AGENTS_DIR/.git" ] ||
+      GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 git clone -q "$AGENTS_URL" "$AGENTS_DIR" ||
+      fail "clone $AGENTS_URL"
+    # links, then pinned skills; it asks before replacing a file (backups kept)
+    [ -x "$AGENTS_DIR/install.sh" ] && { "$AGENTS_DIR/install.sh" sync || fail "agents install.sh"; }
+  fi
 fi
 
 step "Done"

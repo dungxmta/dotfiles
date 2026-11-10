@@ -40,6 +40,10 @@ dot sync              # reconcile tools and modules
 ./install.sh          # change profile, tools or options
 ```
 
+AI agent config and skills live in a separate repo,
+[dungxmta/agents](https://github.com/dungxmta/agents); the installer asks
+(default no) or takes `--with-agents`.
+
 Plugin and pinned tool versions live in `installer/tools/pins.txt`;
 commit it after `dot upgrade` changes it.
 
