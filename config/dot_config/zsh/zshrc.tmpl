@@ -205,6 +205,9 @@ source "$HOME/.config/zsh/lima-vm.zsh"
 source "$HOME/.config/zsh/dot.zsh"
 {{- end }}
 
+# agent: helper from the separate agents repo, when installed (~/SYNC/agents/install.sh)
+[[ -r "$HOME/.config/zsh/agent.zsh" ]] && source "$HOME/.config/zsh/agent.zsh"
+
 ## aliases and functions shared with other shells
 source "$HOME/.config/shell/common/aliases.sh"
 alias reload-zsh="source ~/.zshrc"
