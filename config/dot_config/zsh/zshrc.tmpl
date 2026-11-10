@@ -210,6 +210,9 @@ source "$HOME/.config/shell/common/aliases.sh"
 alias reload-zsh="source ~/.zshrc"
 export XDG_CONFIG_HOME="$HOME/.config"
 
+## AI coding agents (claude code, ...)
+source "$HOME/.config/zsh/agents.zsh"
+
 ## k8s (completion regenerated when the kubectl binary changes)
 if (( $+commands[kubectl] )); then
   [[ $_zsh_cache/kubectl.zsh -nt $commands[kubectl] ]] || kubectl completion zsh >|"$_zsh_cache/kubectl.zsh"
