@@ -1,12 +1,17 @@
 -- How jdtls picks its JDKs:
 -- * jdtls itself (needs Java 25+):
 --     1. $JDTLS_JAVA_HOME if set
---     2. else newest JDK in find_jdks() dirs, if >= 25
+--     2. else newest JDK in find_jdks() dirs, if >= min_launcher_major
 --     3. else warn and fall back to `java` on PATH
 -- * Project runtime: the `java` your shell resolves in the project dir (any version
 --   manager, e.g. mise pin) is the default; it is added even if outside find_jdks() dirs
 -- * Other JDKs in find_jdks() dirs are registered too, for projects targeting them
--- * Using another tool (sdkman, asdf...)? add its install dir to find_jdks(), or set $JDTLS_JAVA_HOME
+-- * find_jdks() scans mise, sdkman, asdf, Homebrew, macOS, Linux dirs in that order and
+--   stops at the first one with a Java 25+; reorder its list to change priority,
+--   or set $JDTLS_JAVA_HOME
+
+-- Minimum Java version jdtls (Mason) needs to run itself; bump when jdtls requires newer
+local min_launcher_major = 25
 
 -- Major Java version of a JDK home, read from its `release` file
 local function jdk_major(home)
@@ -17,10 +22,18 @@ local function jdk_major(home)
   return version and tonumber(version:match("^1%.(%d+)") or version:match("^(%d+)"))
 end
 
--- JDK homes found in version-manager install dirs (add a line if you start using another tool)
+-- JDK homes from common install dirs (order = priority), up to the first dir with a jdtls-capable JDK
 local function find_jdks()
+  local patterns = {
+    "~/.local/share/mise/installs/java/*", -- mise
+    "~/.sdkman/candidates/java/*", -- sdkman
+    "~/.asdf/installs/java/*", -- asdf
+    "/opt/homebrew/opt/openjdk*/libexec/openjdk.jdk/Contents/Home", -- Homebrew formula
+    "/Library/Java/JavaVirtualMachines/*/Contents/Home", -- macOS installers, Homebrew casks
+    "/usr/lib/jvm/*", -- Linux packages
+  }
   local jdks, seen = {}, {}
-  for _, pattern in ipairs({ "~/.local/share/mise/installs/java/*" }) do
+  for _, pattern in ipairs(patterns) do
     for _, path in ipairs(vim.fn.glob(pattern, false, true)) do
       local home = vim.uv.fs_realpath(path) -- dedupe alias symlinks (temurin-21 -> temurin-21.0.13...)
       local major = home and not seen[home] and jdk_major(home)
@@ -28,6 +41,11 @@ local function find_jdks()
         seen[home] = true
         table.insert(jdks, { major = major, home = home })
       end
+    end
+    if vim.iter(jdks):any(function(jdk)
+      return jdk.major >= min_launcher_major
+    end) then
+      break
     end
   end
   table.sort(jdks, function(a, b)
@@ -66,7 +84,6 @@ return {
         local jdks = find_jdks()
 
         -- jdtls itself needs Java 25+; override with JDTLS_JAVA_HOME
-        local min_launcher_major = 25
         local launcher = vim.env.JDTLS_JAVA_HOME
         if not launcher and jdks[1] and jdks[1].major >= min_launcher_major then
           launcher = jdks[1].home
