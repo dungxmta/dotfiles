@@ -22,8 +22,15 @@ local function jdk_major(home)
   return version and tonumber(version:match("^1%.(%d+)") or version:match("^(%d+)"))
 end
 
+-- Lookups are cached per nvim session (the jdtls config is rebuilt on every java buffer);
+-- restart nvim after installing a JDK or changing a project's pin
+local cache = { jdks = nil, shell_home = {}, warned = false }
+
 -- JDK homes from common install dirs (order = priority), up to the first dir with a jdtls-capable JDK
 local function find_jdks()
+  if cache.jdks then
+    return vim.list_extend({}, cache.jdks) -- copy: caller inserts/sorts it
+  end
   local patterns = {
     "~/.local/share/mise/installs/java/*", -- mise
     "~/.sdkman/candidates/java/*", -- sdkman
@@ -51,17 +58,32 @@ local function find_jdks()
   table.sort(jdks, function(a, b)
     return a.major > b.major
   end)
-  return jdks
+  cache.jdks = jdks
+  return vim.list_extend({}, jdks)
 end
 
--- JDK that `java` resolves to in this shell/cwd (works through any version manager or shim)
-local function shell_java_home()
-  local ok, res = pcall(function()
-    return vim.system({ "java", "-XshowSettings:properties", "-version" }, { text = true }):wait()
-  end)
-  local home = ok and res.stderr and res.stderr:match("java%.home = ([^\n]+)")
-  return home and vim.uv.fs_realpath(home) or nil
+-- JDK that `java` resolves to in `dir` (works through any version manager or shim)
+local function shell_java_home(dir)
+  if cache.shell_home[dir] == nil then
+    local ok, res = pcall(function()
+      return vim.system({ "java", "-XshowSettings:properties", "-version" }, { text = true, cwd = dir }):wait()
+    end)
+    local home = ok and res.stderr and res.stderr:match("java%.home = ([^\n]+)")
+    cache.shell_home[dir] = home and vim.uv.fs_realpath(home) or false
+  end
+  return cache.shell_home[dir] or nil
 end
+
+-- Registered once here, not in the jdtls opts fn: that reruns per java buffer
+vim.api.nvim_create_autocmd("FileType", {
+  group = vim.api.nvim_create_augroup("java_indent", { clear = true }),
+  pattern = "java",
+  callback = function()
+    vim.bo.expandtab = true -- insertSpaces = true
+    vim.bo.shiftwidth = 4 -- controls indentation level
+    vim.bo.tabstop = 4 -- tab character width (if used)
+  end,
+})
 
 return {
   {
@@ -72,15 +94,6 @@ return {
     "mfussenegger/nvim-jdtls",
     opts = {
       jdtls = function(opts)
-        vim.api.nvim_create_autocmd("FileType", {
-          pattern = "java",
-          callback = function()
-            vim.bo.expandtab = true -- insertSpaces = true
-            vim.bo.shiftwidth = 4 -- controls indentation level
-            vim.bo.tabstop = 4 -- tab character width (if used)
-          end,
-        })
-
         local jdks = find_jdks()
 
         -- jdtls itself needs Java 25+; override with JDTLS_JAVA_HOME
@@ -91,7 +104,8 @@ return {
         if launcher then
           -- passed as an arg: JAVA_HOME gets overridden by version-manager shims (mise python3)
           table.insert(opts.cmd, 2, "--java-executable=" .. launcher .. "/bin/java")
-        else
+        elseif not cache.warned then
+          cache.warned = true
           vim.notify(
             "jdtls: no Java " .. min_launcher_major .. "+ found, using java on PATH (set JDTLS_JAVA_HOME)",
             vim.log.levels.WARN
@@ -99,7 +113,7 @@ return {
         end
 
         -- project runtime: shell's java is default; other installed JDKs available for projects targeting them
-        local default_home = shell_java_home()
+        local default_home = shell_java_home(opts.root_dir or vim.fn.getcwd())
         if default_home and not vim.iter(jdks):any(function(jdk)
           return jdk.home == default_home
         end) then
