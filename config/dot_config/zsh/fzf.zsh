@@ -2,7 +2,7 @@
 # Sourced from zshrc after oh-my-zsh (zsh-vi-mode) so fzf's Ctrl-R/Ctrl-T/Alt-C widgets win.
 
 # Set up fzf key bindings and fuzzy completion
-eval "$(fzf --zsh)"
+_cached_init fzf --zsh && source $REPLY
 
 # -- Use fd instead of find --
 

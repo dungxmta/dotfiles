@@ -99,9 +99,25 @@ fpath=("$HOME/.config/zsh/completions" $fpath) # _vm (lima-vm.zsh); before compi
 ZSH_DISABLE_COMPFIX=true
 {{- end }}
 
-# cache for slow generated init (kubectl completion, macOS SDK path)
+# cache for slow generated init (kubectl completion, macOS SDK path, tool init scripts)
 _zsh_cache="${XDG_CACHE_HOME:-$HOME/.cache}/zsh"
 [[ -d $_zsh_cache ]] || mkdir -p "$_zsh_cache"
+
+# Cache the init script a tool prints (`_cached_init direnv hook zsh && source $REPLY`).
+# Regenerated when the tool's resolved path changes (a Homebrew upgrade moves it to a
+# new Cellar dir), the binary is newer than the cache, or on reload-zsh
+# ($_zsh_cache_refresh, which also regenerates the other entries). Only for output that doesn't
+# depend on the environment: not `mise activate`, which embeds the current PATH.
+# Sourced by the caller so the script's typeset/setopt run at top level.
+_cached_init() {
+  local bin=${commands[$1]:A} line
+  REPLY="$_zsh_cache/$1-init.zsh"
+  [[ -n $bin ]] || return 1
+  [[ -s $REPLY ]] && read -r line <"$REPLY"
+  if [[ -n $_zsh_cache_refresh || $line != "# $bin" || $REPLY -ot $bin ]]; then
+    { print -r -- "# $bin" && "$@" } >|"$REPLY" || { : >|"$REPLY"; return 1 }
+  fi
+}
 {{- if has "mise" $t }}
 
 ## tool version manager: activate before oh-my-zsh so later hooks find mise's binaries
@@ -215,12 +231,14 @@ source "$HOME/.config/zsh/dot.zsh"
 
 ## aliases and functions shared with other shells
 source "$HOME/.config/shell/common/aliases.sh"
-alias reload-zsh="source ~/.zshrc"
+# reload config, regenerating everything in the cache above (an alias, not a function,
+# so zshrc is sourced at top level and its typesets stay global)
+alias reload-zsh='_zsh_cache_refresh=1; source ~/.zshrc; unset _zsh_cache_refresh'
 export XDG_CONFIG_HOME="$HOME/.config"
 
 ## k8s (completion regenerated when the kubectl binary changes)
 if (( $+commands[kubectl] )); then
-  [[ $_zsh_cache/kubectl.zsh -nt $commands[kubectl] ]] || kubectl completion zsh >|"$_zsh_cache/kubectl.zsh"
+  [[ -z $_zsh_cache_refresh && $_zsh_cache/kubectl.zsh -nt $commands[kubectl] ]] || kubectl completion zsh >|"$_zsh_cache/kubectl.zsh"
   source "$_zsh_cache/kubectl.zsh"
   compdef _kubectl k
 fi
@@ -231,18 +249,18 @@ export PATH=$PATH:~/.local/bin
 [[ ! -f ~/.kubecm ]] || source ~/.kubecm
 {{- if $mac }}
 
-# lib C installed by homebrew (SDK path cached; delete the cache after an Xcode change)
+# lib C installed by homebrew (SDK path cached; reload-zsh after an Xcode change)
 export LIBRARY_PATH="$HOMEBREW_PREFIX/lib:/usr/lib"
-[[ -s $_zsh_cache/sdk-path ]] || xcrun --show-sdk-path >|"$_zsh_cache/sdk-path" 2>/dev/null
+[[ -z $_zsh_cache_refresh && -s $_zsh_cache/sdk-path ]] || xcrun --show-sdk-path >|"$_zsh_cache/sdk-path" 2>/dev/null
 export CPATH="$HOMEBREW_PREFIX/include:$(<"$_zsh_cache/sdk-path")/usr/include"
 {{- end }}
 
-## golang: binaries from `go install`
-(( $+commands[go] )) && export PATH="$PATH:$(go env GOPATH)/bin"
+## golang: binaries from `go install` (Go's default GOPATH; `go env GOPATH` cost ~15ms per shell)
+(( $+commands[go] )) && export PATH="$PATH:${GOPATH:-$HOME/go}/bin"
 {{- if has "direnv" $t }}
 
 ## direnv (native hook)
-(( $+commands[direnv] )) && eval "$(direnv hook zsh)"
+_cached_init direnv hook zsh && source $REPLY
 {{- end }}
 {{- if has "fzf" $t }}
 
@@ -253,12 +271,12 @@ source "$HOME/.config/zsh/fzf.zsh"
 
 ## prompt
 export STARSHIP_CONFIG="$HOME/.config/starship/starship.toml"
-eval "$(starship init zsh)"
+_cached_init starship init zsh && source $REPLY
 {{- end }}
 {{- if has "zoxide" $t }}
 
 ## cd
-eval "$(zoxide init zsh)"
+_cached_init zoxide init zsh && source $REPLY
 alias cd="z"
 {{- end }}
 {{- if $mac }}
