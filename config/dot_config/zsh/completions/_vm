@@ -58,6 +58,7 @@ _vm() {
     'create:create an instance from YAML'
     'clone:clone a stopped instance'
     'restore:replace an instance with a clone of a baseline'
+    'passwd:set the user password in an instance'
     'logs:show instance logs'
     'rm:delete an instance'
     'cp:copy a file or folder into an instance'
@@ -71,7 +72,7 @@ _vm() {
       case $words[1] in
         up|start)
           (( CURRENT == 2 )) && _vm_instances stopped && ret=0 ;;
-        down|stop|halt|restart|reload)
+        down|stop|halt|restart|reload|passwd|password)
           (( CURRENT == 2 )) && _vm_instances running && ret=0 ;;
         edit|rm|delete|destroy)
           (( CURRENT == 2 )) && _vm_instances && ret=0 ;;

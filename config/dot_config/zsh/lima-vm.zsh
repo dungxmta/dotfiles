@@ -348,8 +348,11 @@ _limavm_clone() {
   sets=("${reply[@]}")
   _limavm_confirm "Clone $src -> $dst?" || return 1
   limactl clone "$src" "$dst" "${sets[@]}" || return
-  _limavm_confirm "Start $dst now?" && limactl start "$dst"
-  return 0
+  if _limavm_confirm "Start $dst now?"; then
+    limactl start "$dst" && _limavm_set_password "$dst"
+  else
+    print -u2 -r -- "Before using it: vm up $dst && vm passwd $dst"
+  fi
 }
 
 # vm restore NAME --from BASE — swap NAME for a fresh clone of BASE, keeping NAME's host
@@ -392,8 +395,11 @@ _limavm_restore() {
     return 1
   fi
   print -r -- "Restored $name from $base. Previous state kept as $bak (delete when satisfied: vm rm $bak)."
-  _limavm_confirm "Start $name now?" && limactl start "$name"
-  return 0
+  if _limavm_confirm "Start $name now?"; then
+    limactl start "$name" && _limavm_set_password "$name"
+  else
+    print -u2 -r -- "Before using it: vm up $name && vm passwd $name"
+  fi
 }
 
 _limavm_rm() {
@@ -488,6 +494,25 @@ _limavm_stat() {
   done
 }
 
+# _limavm_set_password NAME — set the guest user's password (sudo, RDP, vm share of
+# sensitive files). A fresh clone has none; typed into the guest's passwd, never stored.
+_limavm_set_password() {
+  local user try
+  user=$(limactl shell --workdir / "$1" -- id -un) || return
+  print -u2 -r -- "Set the password for '$user' in $1 (required: sudo, RDP, vm share of sensitive files)"
+  for try in 1 2 3; do
+    limactl shell --workdir / "$1" -- sudo passwd "$user" </dev/tty && return 0
+  done
+  _limavm_err "password not set; run: vm passwd $1"
+  return 1
+}
+
+_limavm_passwd() {
+  local name; _limavm_target name 'set password of' running "$1" || return
+  _limavm_running "$name" || return
+  _limavm_set_password "$name"
+}
+
 # _limavm_password NAME — ask for the guest user's password and check it in the guest.
 _limavm_password() {
   local pw out try tty
@@ -505,7 +530,7 @@ _limavm_password() {
     out=$(print -r -- "$pw" | limactl shell --workdir / "$1" -- sh -c "$_LIMAVM_PWCHECK" 2>/dev/null)
     case $out in
       ok) return 0 ;;
-      nopass) _limavm_err "$1 has no user password; set one first (make passwd NAME=$1)"; return 1 ;;
+      nopass) _limavm_err "$1 has no user password; set one first (vm passwd $1)"; return 1 ;;
       bad) _limavm_err "wrong password" ;;
       *) _limavm_err "could not check the password in $1 (needs sudo and perl in the VM)"; return 1 ;;
     esac
@@ -964,6 +989,8 @@ vm — Lima VM manager (zsh functions around limactl)
   vm clone [SRC] [DST]       clone a stopped instance, moving host ports to a free slot
   vm restore NAME --from BASE
                              replace NAME with a fresh clone of BASE; old NAME kept as NAME-bak-*
+                             (clone and restore ask for the new VM's user password on start)
+  vm passwd [NAME]           set the VM user's password (sudo, RDP, vm share of sensitive files)
   vm logs [NAME] [ha|out|serial] [-f]
                              tail host-agent / serial logs
   vm rm [NAME]               delete (type the name to confirm; protected instances refused)
@@ -1004,6 +1031,7 @@ vm() {
     create|new) _limavm_create "$@" ;;
     clone) _limavm_clone "$@" ;;
     restore) _limavm_restore "$@" ;;
+    passwd|password) _limavm_passwd "$@" ;;
     logs|log) _limavm_logs "$@" ;;
     rm|delete|destroy) _limavm_rm "$@" ;;
     cp|copy) _limavm_cp "$@" ;;
