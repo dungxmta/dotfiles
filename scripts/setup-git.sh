@@ -101,6 +101,8 @@ for name in $accounts; do
     echo "using the Mac key from the forwarded agent"
   elif [[ ! -f "$key" ]]; then
     echo "missing key $key"
+    [[ "$mac" != true && -n "${SSH_AUTH_SOCK:-}" ]] &&
+      echo "  agent forwarded: on the Mac run 'vm agent <this vm> on' to send the Mac's public key"
     [[ "$mac" == true ]] && echo "  restore from KeePassXC: $SCRIPTS_DIR/ssh-keys.sh restore"
     if [[ "$test_only" == true ]] || ! confirm "Generate a new key instead?"; then
       failed="$failed $name"

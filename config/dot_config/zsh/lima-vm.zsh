@@ -365,14 +365,32 @@ _limavm_clone() {
   sets+=("--set=.ssh.forwardAgent=$agent")
   limactl clone "$src" "$dst" "${sets[@]}" || return
   if _limavm_confirm "Start $dst now?"; then
-    limactl start "$dst" && _limavm_set_password "$dst"
+    limactl start "$dst" && _limavm_set_password "$dst" &&
+      { [[ $agent == false ]] || _limavm_push_keys "$dst"; }
   else
     print -u2 -r -- "Before using it: vm up $dst && vm passwd $dst"
+    [[ $agent == true ]] && print -u2 -r -- "Then send the Mac's public keys: vm agent $dst on"
   fi
 }
 
+# _limavm_push_keys NAME — copy the Mac's ~/.ssh/id_ed25519_{github,work}.pub into the VM's
+# ~/.ssh/mac/. ssh there uses IdentitiesOnly, so it offers a forwarded key only when it
+# finds the key's .pub. Public halves only; the private keys stay on the Mac.
+_limavm_push_keys() {
+  local alias key sent=
+  for alias in github work; do
+    key=$HOME/.ssh/id_ed25519_$alias.pub
+    [[ -f $key ]] || continue
+    limactl shell --workdir / "$1" -- sh -c \
+      "umask 077; mkdir -p ~/.ssh/mac && cat > ~/.ssh/mac/id_ed25519_$alias.pub" <"$key" || return
+    sent+=" $alias"
+  done
+  print -u2 -r -- "$1: Mac public keys sent:${sent:- none (no ~/.ssh/id_ed25519_{github,work}.pub)}"
+}
+
 # vm agent [NAME] [on|off] — the Mac's SSH keys in the VM through agent forwarding; without
-# on/off, show the setting. A running VM is restarted to apply it. Baselines are refused.
+# on/off, show the setting. A running VM is restarted to apply it, and `on` sends the Mac's
+# public keys (again, if already on: use it after making a new key). Baselines are refused.
 _limavm_agent() {
   local name=$1 want=$2 cur state
   [[ $name == (on|off) ]] && { want=$name; name=; }
@@ -380,18 +398,22 @@ _limavm_agent() {
   _limavm_target name 'agent forwarding of' '' "$name" || return
   cur=$(limactl list --format '{{.Config.SSH.ForwardAgent}}' "$name" 2>/dev/null)
   [[ $cur == true ]] && cur=on || cur=off
+  state=$(_limavm_state "$name")
   if [[ -z $want || $want == $cur ]]; then
     print -r -- "$name: agent forwarding $cur"
+    [[ $want == on && $state == Running ]] && _limavm_push_keys "$name"
     return 0
   fi
   _limavm_protected "$name" && { _limavm_err "'$name' is a protected baseline; set it on the clone instead"; return 1; }
-  state=$(_limavm_state "$name")
   if [[ $state == Running ]]; then
     _limavm_confirm "$name is running; restart it to turn agent forwarding $want?" || return 1
     limactl stop "$name" || return
   fi
   limactl edit --tty=false "$name" --set ".ssh.forwardAgent=$([[ $want == on ]] && print true || print false)" || return
-  [[ $state == Running ]] && { limactl start "$name" || return; }
+  if [[ $state == Running ]]; then
+    limactl start "$name" || return
+    [[ $want == on ]] && _limavm_push_keys "$name"
+  fi
   print -r -- "$name: agent forwarding $want"
 }
 
@@ -1034,6 +1056,7 @@ vm — Lima VM manager (zsh functions around limactl)
                              (clone and restore ask for the new VM's user password on start)
   vm passwd [NAME]           set the VM user's password (sudo, RDP, vm share of sensitive files)
   vm agent [NAME] [on|off]   use the Mac's SSH keys in the VM (agent forwarding); no on/off: show
+                             `on` also sends the Mac's public keys (again if already on)
   vm logs [NAME] [ha|out|serial] [-f]
                              tail host-agent / serial logs
   vm rm [NAME]               delete (type the name to confirm; protected instances refused)

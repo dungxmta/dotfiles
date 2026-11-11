@@ -10,7 +10,7 @@ Include ~/.colima/ssh_config
 #                                    file here, so ssh asks the agent for <path>.pub
 {{- end }}
 
-Host github
+Host github github.com
     HostName github.com
     User git
     IdentityFile ~/.ssh/id_ed25519_github
@@ -23,7 +23,7 @@ Host github
     AddKeysToAgent yes
     UseKeychain yes
 
-Host gitlab
+Host gitlab gitlab.com
     HostName gitlab.com
     User git
     IdentityFile ~/.ssh/id_ed25519_gitlab
@@ -36,7 +36,7 @@ Host gitlab
 {{- if hasKey . "work" }}
 
 # work account: [data.work] in the local chezmoi config (never in git)
-Host work{{ range (get .work "sshAliases" | default list) }} {{ . }}{{ end }}
+Host work {{ .work.host }}{{ range (get .work "sshAliases" | default list) }} {{ . }}{{ end }}
     HostName {{ .work.host }}
     User git
     IdentityFile {{ get .work "identityFile" | default "~/.ssh/id_ed25519_work" }}
