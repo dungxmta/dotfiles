@@ -18,6 +18,21 @@ _vm_instances() {
   (( $#rest )) && _describe -t instances 'instance' rest
 }
 
+# _vm_guest_arg [files] — NAME: (then a guest path, which isn't completed); with
+# "files", host files too.
+_vm_guest_arg() {
+  local ret=1
+  local -a names expl
+  if compset -P '[A-Za-z0-9][A-Za-z0-9._-]#:'; then
+    _message 'path in the guest'
+    return 0
+  fi
+  names=(${(f)"$(limactl list --format '{{.Name}}' 2>/dev/null)"})
+  [[ $1 == files ]] && _files && ret=0
+  (( $#names )) && _wanted instances expl 'instance (NAME:PATH)' compadd -S : -a names && ret=0
+  return ret
+}
+
 _vm_templates() {
   local d ret=1
   local -a tpl
@@ -45,6 +60,8 @@ _vm() {
     'restore:replace an instance with a clone of a baseline'
     'logs:show instance logs'
     'rm:delete an instance'
+    'cp:copy a file or folder into an instance'
+    'share:copy from an instance into the share folder, or manage it'
     'help:show usage'
   )
   _arguments -C '1: :->cmd' '*:: :->args' && ret=0
@@ -86,6 +103,21 @@ _vm() {
             2) _vm_instances && ret=0 ;;
             3) compadd -- --from && ret=0 ;;
             4) _vm_instances stopped && ret=0 ;;
+          esac ;;
+        cp|copy)
+          case $CURRENT in
+            2) _files && ret=0 ;;
+            3) _vm_guest_arg && ret=0 ;;
+          esac ;;
+        share)
+          case $CURRENT in
+            2)
+              if [[ $PREFIX != *:* ]]; then
+                _values 'share command' 'analyze[preview the share folder, then clean]' \
+                  'open[open in Finder]' 'restore-dots[give back hidden names vm share renamed]' && ret=0
+              fi
+              _vm_guest_arg && ret=0 ;;
+            3) [[ $words[2] == restore-dots ]] && _files -W "${LIMA_VM_SHARE:-$HOME/WORKSPACE/vm/volume-share}" && ret=0 ;;
           esac ;;
       esac ;;
   esac
