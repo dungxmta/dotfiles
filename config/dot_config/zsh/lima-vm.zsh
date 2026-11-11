@@ -541,7 +541,7 @@ _limavm_set_password() {
   user=$(limactl shell --workdir / "$1" -- id -un) || return
   print -u2 -r -- "Set the password for '$user' in $1 (required: sudo, RDP, vm share of sensitive files)"
   for try in 1 2 3; do
-    limactl shell --workdir / "$1" -- sudo passwd "$user" </dev/tty && return 0
+    limactl shell --workdir / "$1" -- sudo passwd "$user" && return 0
   done
   _limavm_err "password not set; run: vm passwd $1"
   return 1
