@@ -109,3 +109,9 @@
 
 [init]
 	defaultBranch = main
+
+# Don't treat a folder as a bare repository just because you cd into it: its
+# config (core.pager, core.fsmonitor…) could run commands. Use --git-dir for
+# bare repos.
+[safe]
+	bareRepository = explicit
