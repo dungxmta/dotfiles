@@ -59,6 +59,7 @@ _vm() {
     'clone:clone a stopped instance'
     'restore:replace an instance with a clone of a baseline'
     'passwd:set the user password in an instance'
+    'agent:use the Mac SSH keys in an instance (agent forwarding)'
     'logs:show instance logs'
     'rm:delete an instance'
     'cp:copy a file or folder into an instance'
@@ -93,6 +94,12 @@ _vm() {
           case $CURRENT in
             2) _vm_instances stopped && ret=0 ;;
             3) _message 'new instance name' ;;
+            4) _values 'option' '--agent[use the Mac SSH keys]' '--no-agent[keys of its own]' && ret=0 ;;
+          esac ;;
+        agent)
+          case $CURRENT in
+            2) _vm_instances && ret=0 ;;
+            3) _values 'agent forwarding' 'on' 'off' && ret=0 ;;
           esac ;;
         create|new)
           case $CURRENT in

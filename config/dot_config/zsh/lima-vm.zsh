@@ -325,10 +325,21 @@ _limavm_port_sets() {
   return 1
 }
 
-# vm clone [SRC] [DST]
+# vm clone [SRC] [DST] [--agent|--no-agent] — --agent forwards the Mac's SSH agent into the
+# clone (git uses the Mac's keys while connected); without either flag it asks, default no.
 _limavm_clone() {
-  local src dst=$2 REPLY
-  _limavm_target src 'clone from' stopped "$1" || return
+  local src dst agent= arg REPLY
+  local -a pos
+  for arg; do
+    case $arg in
+      --agent) agent=true ;;
+      --no-agent) agent=false ;;
+      -*) _limavm_err "unknown option '$arg' (vm clone [SRC] [DST] [--agent|--no-agent])"; return 2 ;;
+      *) pos+=("$arg") ;;
+    esac
+  done
+  dst=$pos[2]
+  _limavm_target src 'clone from' stopped "$pos[1]" || return
   if [[ -z $dst ]]; then
     local def=${src%-base}-dev
     _limavm_exists "$def" && def=
@@ -347,12 +358,41 @@ _limavm_clone() {
   _limavm_port_sets "$src" || return
   sets=("${reply[@]}")
   _limavm_confirm "Clone $src -> $dst?" || return 1
+  if [[ -z $agent ]]; then
+    agent=false
+    _limavm_confirm "Use the Mac's SSH keys in $dst (agent forwarding)?" && agent=true
+  fi
+  sets+=("--set=.ssh.forwardAgent=$agent")
   limactl clone "$src" "$dst" "${sets[@]}" || return
   if _limavm_confirm "Start $dst now?"; then
     limactl start "$dst" && _limavm_set_password "$dst"
   else
     print -u2 -r -- "Before using it: vm up $dst && vm passwd $dst"
   fi
+}
+
+# vm agent [NAME] [on|off] — the Mac's SSH keys in the VM through agent forwarding; without
+# on/off, show the setting. A running VM is restarted to apply it. Baselines are refused.
+_limavm_agent() {
+  local name=$1 want=$2 cur state
+  [[ $name == (on|off) ]] && { want=$name; name=; }
+  [[ -z $want || $want == (on|off) ]] || { _limavm_err "usage: vm agent [NAME] [on|off]"; return 2; }
+  _limavm_target name 'agent forwarding of' '' "$name" || return
+  cur=$(limactl list --format '{{.Config.SSH.ForwardAgent}}' "$name" 2>/dev/null)
+  [[ $cur == true ]] && cur=on || cur=off
+  if [[ -z $want || $want == $cur ]]; then
+    print -r -- "$name: agent forwarding $cur"
+    return 0
+  fi
+  _limavm_protected "$name" && { _limavm_err "'$name' is a protected baseline; set it on the clone instead"; return 1; }
+  state=$(_limavm_state "$name")
+  if [[ $state == Running ]]; then
+    _limavm_confirm "$name is running; restart it to turn agent forwarding $want?" || return 1
+    limactl stop "$name" || return
+  fi
+  limactl edit --tty=false "$name" --set ".ssh.forwardAgent=$([[ $want == on ]] && print true || print false)" || return
+  [[ $state == Running ]] && { limactl start "$name" || return; }
+  print -r -- "$name: agent forwarding $want"
 }
 
 # vm restore NAME --from BASE — swap NAME for a fresh clone of BASE, keeping NAME's host
@@ -986,11 +1026,14 @@ vm — Lima VM manager (zsh functions around limactl)
   vm edit [NAME]             limactl edit
   vm create [NAME] [FILE.yaml|template:NAME]
                              create from YAML (validated first; never overwrites)
-  vm clone [SRC] [DST]       clone a stopped instance, moving host ports to a free slot
+  vm clone [SRC] [DST] [--agent|--no-agent]
+                             clone a stopped instance, moving host ports to a free slot;
+                             asks whether to use the Mac's SSH keys (agent forwarding)
   vm restore NAME --from BASE
                              replace NAME with a fresh clone of BASE; old NAME kept as NAME-bak-*
                              (clone and restore ask for the new VM's user password on start)
   vm passwd [NAME]           set the VM user's password (sudo, RDP, vm share of sensitive files)
+  vm agent [NAME] [on|off]   use the Mac's SSH keys in the VM (agent forwarding); no on/off: show
   vm logs [NAME] [ha|out|serial] [-f]
                              tail host-agent / serial logs
   vm rm [NAME]               delete (type the name to confirm; protected instances refused)
@@ -1032,6 +1075,7 @@ vm() {
     clone) _limavm_clone "$@" ;;
     restore) _limavm_restore "$@" ;;
     passwd|password) _limavm_passwd "$@" ;;
+    agent) _limavm_agent "$@" ;;
     logs|log) _limavm_logs "$@" ;;
     rm|delete|destroy) _limavm_rm "$@" ;;
     cp|copy) _limavm_cp "$@" ;;
