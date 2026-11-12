@@ -164,11 +164,49 @@ _limavm_guard_baseline() {
   _limavm_confirm "'$1' is a protected baseline; starting it changes its disk. Continue?"
 }
 
+# _limavm_ask_agent NAME [true|false] — sets REPLY to whether this boot of NAME forwards the
+# Mac's SSH agent: the given value, else ask (default no). Baselines never do: REPLY=''.
+_limavm_ask_agent() {
+  REPLY=$2
+  if _limavm_protected "$1"; then
+    [[ $REPLY == true ]] && { _limavm_err "'$1' is a protected baseline; no agent forwarding"; return 1; }
+    REPLY=
+  elif [[ -z $REPLY ]]; then
+    REPLY=false
+    _limavm_confirm "Use the Mac's SSH keys in $1 this boot (agent forwarding)?" && REPLY=true
+  fi
+  return 0
+}
+
+# _limavm_start NAME [true|false] — start a stopped NAME with agent forwarding decided for
+# this boot (asked when not given), so the Mac's keys reach a VM only when wanted; `true`
+# also sends the Mac's public keys.
+_limavm_start() {
+  local REPLY
+  _limavm_ask_agent "$1" "$2" || return
+  local agent=$REPLY
+  if [[ -n $agent && $(limactl list --format '{{.Config.SSH.ForwardAgent}}' "$1" 2>/dev/null) != $agent ]]; then
+    limactl edit --tty=false "$1" --set ".ssh.forwardAgent=$agent" || return
+  fi
+  limactl start "$1" || return
+  [[ $agent == true ]] && _limavm_push_keys "$1"
+  return 0
+}
+
+# vm up [NAME] [--agent|--no-agent]
 _limavm_up() {
-  local name; _limavm_target name start stopped "$1" || return
+  local name= agent= arg
+  for arg; do
+    case $arg in
+      --agent) agent=true ;;
+      --no-agent) agent=false ;;
+      *) name=$arg ;;
+    esac
+  done
+  _limavm_target name start stopped "$name" || return
   [[ $(_limavm_state "$name") == Running ]] && { print -r -- "$name is already running"; return 0; }
   _limavm_guard_baseline "$name" || return 1
-  limactl start "$name"
+  _limavm_start "$name" "$agent"
 }
 
 _limavm_down() {
@@ -177,38 +215,55 @@ _limavm_down() {
   limactl stop "$name"
 }
 
+# vm restart [NAME] [--agent|--no-agent]
 _limavm_restart() {
-  local name; _limavm_target name restart running "$1" || return
+  local name= agent= arg REPLY
+  for arg; do
+    case $arg in
+      --agent) agent=true ;;
+      --no-agent) agent=false ;;
+      *) name=$arg ;;
+    esac
+  done
+  _limavm_target name restart running "$name" || return
   if [[ $(_limavm_state "$name") == Running ]]; then
-    limactl restart "$name"
+    # ask before stopping, not after
+    _limavm_ask_agent "$name" "$agent" || return
+    limactl stop "$name" || return
+    _limavm_start "$name" "${REPLY:-false}"
   else
     _limavm_guard_baseline "$name" || return 1
-    limactl start "$name"
+    _limavm_start "$name" "$agent"
   fi
 }
 
-# vm ssh [NAME] [-- CMD...]
+# vm ssh [NAME] [--agent|--no-agent] [-- CMD...] — the agent flag only matters when it starts NAME
 _limavm_ssh() {
-  local name= arg
+  local name= agent= arg
   local -a cmd
   while (( $# )); do
     arg=$1; shift
-    if [[ $arg == -- ]]; then cmd=("$@"); break; fi
-    [[ -z $name ]] && name=$arg || cmd+=("$arg")
+    case $arg in
+      --) cmd=("$@"); break ;;
+      --agent) agent=true ;;
+      --no-agent) agent=false ;;
+      *) [[ -z $name ]] && name=$arg || cmd+=("$arg") ;;
+    esac
   done
   _limavm_target name ssh '' "$name" || return
-  local -a opts
   if [[ $(_limavm_state "$name") != Running ]]; then
     _limavm_confirm "$name is not running. Start it?" || return 1
     _limavm_guard_baseline "$name" || return 1
-    opts=(--start)
+    _limavm_start "$name" "$agent" || return
+  elif [[ -n $agent ]]; then
+    print -u2 -r -- "$name is already running; --agent/--no-agent apply on start (now: vm agent $name on|off)"
   fi
   if (( $#cmd )); then
-    limactl shell $opts "$name" "${cmd[@]}"
+    limactl shell "$name" "${cmd[@]}"
   else
     # plain `limactl shell` runs bash; open the user's login shell instead, with SHELL
     # matching it (limactl exports SHELL=/bin/bash, and tmux starts panes with $SHELL)
-    limactl shell $opts "$name" -- sh -c 's=$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f7); s=${s:-/bin/sh}; SHELL=$s exec "$s" -l'
+    limactl shell "$name" -- sh -c 's=$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f7); s=${s:-/bin/sh}; SHELL=$s exec "$s" -l'
   fi
 }
 
@@ -326,7 +381,8 @@ _limavm_port_sets() {
 }
 
 # vm clone [SRC] [DST] [--agent|--no-agent] — --agent forwards the Mac's SSH agent into the
-# clone (git uses the Mac's keys while connected); without either flag it asks, default no.
+# clone's first boot when started right away (git uses the Mac's keys); without either flag,
+# starting it asks, default no. Every later start asks again.
 _limavm_clone() {
   local src dst agent= arg REPLY
   local -a pos
@@ -358,18 +414,12 @@ _limavm_clone() {
   _limavm_port_sets "$src" || return
   sets=("${reply[@]}")
   _limavm_confirm "Clone $src -> $dst?" || return 1
-  if [[ -z $agent ]]; then
-    agent=false
-    _limavm_confirm "Use the Mac's SSH keys in $dst (agent forwarding)?" && agent=true
-  fi
-  sets+=("--set=.ssh.forwardAgent=$agent")
+  sets+=("--set=.ssh.forwardAgent=false")
   limactl clone "$src" "$dst" "${sets[@]}" || return
   if _limavm_confirm "Start $dst now?"; then
-    limactl start "$dst" && _limavm_set_password "$dst" &&
-      { [[ $agent == false ]] || _limavm_push_keys "$dst"; }
+    _limavm_start "$dst" "$agent" && _limavm_set_password "$dst"
   else
     print -u2 -r -- "Before using it: vm up $dst && vm passwd $dst"
-    [[ $agent == true ]] && print -u2 -r -- "Then send the Mac's public keys: vm agent $dst on"
   fi
 }
 
@@ -388,33 +438,32 @@ _limavm_push_keys() {
   print -u2 -r -- "$1: Mac public keys sent:${sent:- none (no ~/.ssh/id_ed25519_{github,work}.pub)}"
 }
 
-# vm agent [NAME] [on|off] — the Mac's SSH keys in the VM through agent forwarding; without
-# on/off, show the setting. A running VM is restarted to apply it, and `on` sends the Mac's
-# public keys (again, if already on: use it after making a new key). Baselines are refused.
+# vm agent [NAME] [on|off] — the Mac's SSH keys in a running VM through agent forwarding, for
+# this boot; without on/off, show it. Switching restarts the VM, and `on` sends the Mac's
+# public keys (again, if already on: use it after making a new key). A stopped VM is left
+# alone: every start asks. Baselines are refused.
 _limavm_agent() {
   local name=$1 want=$2 cur state
   [[ $name == (on|off) ]] && { want=$name; name=; }
   [[ -z $want || $want == (on|off) ]] || { _limavm_err "usage: vm agent [NAME] [on|off]"; return 2; }
   _limavm_target name 'agent forwarding of' '' "$name" || return
+  state=$(_limavm_state "$name")
+  if [[ $state != Running ]]; then
+    print -r -- "$name is stopped; vm up / vm ssh ask about agent forwarding when it starts (or pass --agent)"
+    return 0
+  fi
   cur=$(limactl list --format '{{.Config.SSH.ForwardAgent}}' "$name" 2>/dev/null)
   [[ $cur == true ]] && cur=on || cur=off
-  state=$(_limavm_state "$name")
   if [[ -z $want || $want == $cur ]]; then
-    print -r -- "$name: agent forwarding $cur"
-    [[ $want == on && $state == Running ]] && _limavm_push_keys "$name"
+    print -r -- "$name: agent forwarding $cur (this boot)"
+    [[ $want == on ]] && _limavm_push_keys "$name"
     return 0
   fi
   _limavm_protected "$name" && { _limavm_err "'$name' is a protected baseline; set it on the clone instead"; return 1; }
-  if [[ $state == Running ]]; then
-    _limavm_confirm "$name is running; restart it to turn agent forwarding $want?" || return 1
-    limactl stop "$name" || return
-  fi
-  limactl edit --tty=false "$name" --set ".ssh.forwardAgent=$([[ $want == on ]] && print true || print false)" || return
-  if [[ $state == Running ]]; then
-    limactl start "$name" || return
-    [[ $want == on ]] && _limavm_push_keys "$name"
-  fi
-  print -r -- "$name: agent forwarding $want"
+  _limavm_confirm "$name is running; restart it to turn agent forwarding $want?" || return 1
+  limactl stop "$name" || return
+  _limavm_start "$name" "$([[ $want == on ]] && print true || print false)" || return
+  print -r -- "$name: agent forwarding $want (this boot)"
 }
 
 # vm restore NAME --from BASE — swap NAME for a fresh clone of BASE, keeping NAME's host
@@ -458,7 +507,7 @@ _limavm_restore() {
   fi
   print -r -- "Restored $name from $base. Previous state kept as $bak (delete when satisfied: vm rm $bak)."
   if _limavm_confirm "Start $name now?"; then
-    limactl start "$name" && _limavm_set_password "$name"
+    _limavm_start "$name" && _limavm_set_password "$name"
   else
     print -u2 -r -- "Before using it: vm up $name && vm passwd $name"
   fi
@@ -1041,21 +1090,23 @@ vm — Lima VM manager (zsh functions around limactl)
   vm                         interactive dashboard
   vm ls [limactl list args]  list instances (limactl list)
   vm ps                      status table: name, state, cpu, ram, disk, arch, backend, ip
-  vm up [NAME]               start (picker lists stopped first)
+  vm up [NAME] [--agent|--no-agent]
+                             start (picker lists stopped first); every start asks whether
+                             to use the Mac's SSH keys this boot (agent forwarding), unless
+                             a flag answers it; up, restart, ssh and clone all take them
   vm down [NAME]             stop (picker lists running first)
   vm restart [NAME]          restart (starts if stopped)
-  vm ssh [NAME] [-- CMD...]  login shell, or run CMD in the guest
+  vm ssh [NAME] [-- CMD...]  login shell, or run CMD in the guest (asks to start a stopped VM)
   vm edit [NAME]             limactl edit
   vm create [NAME] [FILE.yaml|template:NAME]
                              create from YAML (validated first; never overwrites)
   vm clone [SRC] [DST] [--agent|--no-agent]
-                             clone a stopped instance, moving host ports to a free slot;
-                             asks whether to use the Mac's SSH keys (agent forwarding)
+                             clone a stopped instance, moving host ports to a free slot
   vm restore NAME --from BASE
                              replace NAME with a fresh clone of BASE; old NAME kept as NAME-bak-*
                              (clone and restore ask for the new VM's user password on start)
   vm passwd [NAME]           set the VM user's password (sudo, RDP, vm share of sensitive files)
-  vm agent [NAME] [on|off]   use the Mac's SSH keys in the VM (agent forwarding); no on/off: show
+  vm agent [NAME] [on|off]   switch agent forwarding of a running VM (restarts it); no on/off: show
                              `on` also sends the Mac's public keys (again if already on)
   vm logs [NAME] [ha|out|serial] [-f]
                              tail host-agent / serial logs

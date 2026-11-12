@@ -72,8 +72,16 @@ _vm() {
     args)
       case $words[1] in
         up|start)
-          (( CURRENT == 2 )) && _vm_instances stopped && ret=0 ;;
-        down|stop|halt|restart|reload|passwd|password)
+          case $CURRENT in
+            2) _vm_instances stopped && ret=0 ;;
+            3) _values 'option' '--agent[use the Mac SSH keys this boot]' '--no-agent[no Mac SSH keys this boot]' && ret=0 ;;
+          esac ;;
+        restart|reload)
+          case $CURRENT in
+            2) _vm_instances running && ret=0 ;;
+            3) _values 'option' '--agent[use the Mac SSH keys this boot]' '--no-agent[no Mac SSH keys this boot]' && ret=0 ;;
+          esac ;;
+        down|stop|halt|passwd|password)
           (( CURRENT == 2 )) && _vm_instances running && ret=0 ;;
         edit|rm|delete|destroy)
           (( CURRENT == 2 )) && _vm_instances && ret=0 ;;
@@ -81,7 +89,7 @@ _vm() {
           if (( CURRENT == 2 )); then
             _vm_instances && ret=0
           elif (( CURRENT == 3 )); then
-            compadd -- -- && ret=0
+            compadd -- -- --agent --no-agent && ret=0
           fi ;;
         logs|log)
           if (( CURRENT == 2 )); then
@@ -94,7 +102,7 @@ _vm() {
           case $CURRENT in
             2) _vm_instances stopped && ret=0 ;;
             3) _message 'new instance name' ;;
-            4) _values 'option' '--agent[use the Mac SSH keys]' '--no-agent[keys of its own]' && ret=0 ;;
+            4) _values 'option' '--agent[use the Mac SSH keys on first boot]' '--no-agent[no Mac SSH keys on first boot]' && ret=0 ;;
           esac ;;
         agent)
           case $CURRENT in
