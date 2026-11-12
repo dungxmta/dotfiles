@@ -34,7 +34,12 @@ dot() {
       git -C "$repo" status -sb
       chezmoi status "$@"
       ;;
-    sync)   repo="$(_dot_repo)" && "$repo/install.sh" --sync "$@" ;;
+    sync)
+      repo="$(_dot_repo)" || return
+      # dot sync TOOL: only that tool's questions and files
+      [[ -n $1 && $1 != -* ]] && set -- --only "$@"
+      "$repo/install.sh" --sync "$@"
+      ;;
     tools)  repo="$(_dot_repo)" && "$repo/install.sh" --select-tools "$@" ;;
     upgrade)  repo="$(_dot_repo)" && "$repo/install.sh" --upgrade "$@" ;;
     outdated) repo="$(_dot_repo)" && "$repo/install.sh" --outdated "$@" ;;
@@ -49,6 +54,8 @@ usage: dot <command>
   update       pull the repo, show the diff, apply after a yes
   status       git status of the repo + chezmoi status
   sync         reconcile profile, tools and sparse checkout (install.sh --sync)
+  sync TOOL    ask TOOL's questions again, preview and apply only its files
+               (nvim, tmux, git; others just re-render)
   tools        choose tools interactively (install.sh --select-tools)
   outdated     list newer versions: tools, runtimes, plugins, repo pins
   upgrade      pick what to upgrade from that list

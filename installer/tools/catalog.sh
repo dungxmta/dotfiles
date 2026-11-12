@@ -39,5 +39,15 @@ tool_modules() {
   esac
 }
 
+# Files under ~ holding each tool's config (dot sync TOOL); tools without one print nothing.
+tool_targets() {
+  case "$1" in
+    git) echo ".gitconfig .config/git .ssh" ;;
+    lazygit | starship | mise) echo ".config/$1" ;;
+    tmux) echo ".tmux.conf .config/tmux" ;;
+    neovim) echo ".config/nvim" ;;
+  esac
+}
+
 # Mac apps (Homebrew casks), offered on the Mac profiles only; none preselected.
 MAC_APPS="kitty ghostty karabiner-elements leader-key mouseless keepassxc"

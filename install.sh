@@ -26,6 +26,8 @@ usage: ./install.sh [options]
   --sync                no questions: reuse saved answers, offer new profile
                         defaults, expand the sparse checkout, install missing
                         tools, preview and apply configuration
+  --only TOOL           with --sync: ask only TOOL's questions (nvim, tmux, git),
+                        then preview and apply only TOOL's files (dot sync TOOL)
   --outdated            list what has a newer version (tools, runtimes, repo pins)
   --upgrade [NAME...]   upgrade those, or pick from the outdated list; one name
                         space for brew, mise, apt and repo pins (pins.txt)
@@ -44,7 +46,7 @@ EOF
 }
 
 REPO="$(cd "$(dirname "$0")" && pwd)"
-OPT_PROFILE="" OPT_TOOLS="" OPT_DOT="" OPT_AGENTS="" OPT_CLIPBOARD="" OPT_CHECKOUT="" OPT_MODE=""
+OPT_PROFILE="" OPT_TOOLS="" OPT_DOT="" OPT_AGENTS="" OPT_CLIPBOARD="" OPT_CHECKOUT="" OPT_MODE="" ONLY=""
 SYNC=false UPGRADE=false DRY_RUN=false ASSUME_YES=false SELECT_TOOLS=false
 OUTDATED_ONLY=false UPGRADE_ALL=false UPGRADE_NAMES=""
 while [ $# -gt 0 ]; do
@@ -61,6 +63,7 @@ while [ $# -gt 0 ]; do
     --configure-only) OPT_MODE=configure ;;
     --checkout) OPT_CHECKOUT="${2:?--checkout needs full or sparse}"; shift ;;
     --sync) SYNC=true ;;
+    --only) ONLY="${2:?--only needs a tool}"; shift ;;
     --upgrade | --outdated)
       UPGRADE=true
       [ "$1" = --outdated ] && OUTDATED_ONLY=true
@@ -80,6 +83,8 @@ while [ $# -gt 0 ]; do
   shift
 done
 case "$OPT_CHECKOUT" in "" | full | sparse) ;; *) echo "--checkout: full or sparse" >&2; exit 2 ;; esac
+[ "$ONLY" = nvim ] && ONLY=neovim
+[ -z "$ONLY" ] || [ "$SYNC" = true ] || { echo "--only needs --sync" >&2; exit 2; }
 
 # A fresh sparse clone has only the root files: fetch the installer first.
 if [ ! -f "$REPO/installer/lib/ui.sh" ]; then
@@ -103,7 +108,7 @@ AGENTS_URL="https://github.com/dungxmta/agents.git"
 # --- saved state ----------------------------------------------------------------
 
 S_PROFILE="" S_TOOLS="" S_RUNTIMES="" S_APPS="" S_NVIM="" S_NVIM_CLIPBOARD="" S_TMUX="" S_PREFIX="" S_DOT="" S_AGENTS="" S_MODE=""
-S_CHECKOUT="" S_SEEN="" S_WORK=""
+S_CHECKOUT="" S_SEEN="" S_MISE="" S_WORK="" S_WORK_HOST="" S_WORK_EMAIL=""
 load_state() {
   [ -f "$CZ_CONFIG" ] && has chezmoi || return 0
   local k v out
@@ -121,13 +126,16 @@ S_AGENTS={{ get . "agentsEnabled" }}
 S_MODE={{ get . "installMode" }}
 S_CHECKOUT={{ get . "checkout" }}
 S_SEEN={{ get . "defaultsSeen" | default list | join " " }}
-S_WORK={{ if hasKey . "work" }}yes{{ end }}' 2>/dev/null)" || return 0
-  # Saved values are plain words (tool names, C-a, ...); anything else is ignored.
+S_MISE={{ get . "miseTools" | default list | join " " }}
+S_WORK={{ if hasKey . "work" }}yes{{ end }}
+S_WORK_HOST={{ if hasKey . "work" }}{{ get .work "host" }}{{ end }}
+S_WORK_EMAIL={{ if hasKey . "work" }}{{ get .work "email" }}{{ end }}' 2>/dev/null)" || return 0
+  # Saved values are plain words (tool names, C-a, an email, ...); anything else is ignored.
   while IFS='=' read -r k v; do
     case "$k" in S_[A-Z]*) ;; *) continue ;; esac
     case "$k" in *[!A-Z_]*) continue ;; esac
     v="${v//<no value>/}"
-    case "$v" in *[!A-Za-z0-9\ ._-]*) warn "ignoring unexpected saved value for $k"; continue ;; esac
+    case "$v" in *[!A-Za-z0-9\ ._@+-]*) warn "ignoring unexpected saved value for $k"; continue ;; esac
     printf -v "$k" '%s' "$v"
   done <<EOF
 $out
@@ -138,7 +146,7 @@ EOF
 write_state() {
   DOT_REPO="$REPO" DOT_PROFILE="$PROFILE" DOT_CHECKOUT="$CHECKOUT" \
     DOT_TOOLS="$(csv "$TOOLS")" DOT_RUNTIMES="$(csv "$RUNTIMES")" DOT_APPS="$(csv "$APPS")" \
-    DOT_MISE_TOOLS="$(csv "$PLAN_MISE")" DOT_DEFAULTS_SEEN="$(csv "$PROFILE_TOOLS")" \
+    DOT_MISE_TOOLS="$(csv "$PLAN_MISE")" DOT_DEFAULTS_SEEN="$(csv "$SEEN_TOOLS")" \
     DOT_NVIM="$NVIM" DOT_NVIM_CLIPBOARD_OVER_SSH="$NVIM_CLIPBOARD" DOT_TMUX="$TMUX_VARIANT" DOT_TMUX_PREFIX="$PREFIX" DOT_DOT="$DOT" DOT_AGENTS="$AGENTS" DOT_MODE="$SAVED_MODE" \
     DOT_WORK_HOST="${WORK_HOST:-}" DOT_WORK_EMAIL="${WORK_EMAIL:-}" \
     chezmoi --config "$1" --source "$REPO" init --no-tty >/dev/null
@@ -165,6 +173,7 @@ else
 fi
 in_list "$PROFILE" "$PROFILES" || die "unknown profile: $PROFILE ($PROFILES)"
 . "$REPO/installer/profiles/$PROFILE.sh"
+SEEN_TOOLS="$PROFILE_TOOLS"  # saved as defaultsSeen (see --sync below)
 
 same=false
 [ "$PROFILE" = "$S_PROFILE" ] && same=true
@@ -196,7 +205,7 @@ if [ "$UPGRADE" = true ]; then
 fi
 
 # Profile defaults that changed in the repo never override saved choices silently.
-if [ "$same" = true ] && [ "$SYNC" = true ]; then
+if [ "$same" = true ] && [ "$SYNC" = true ] && [ -z "$ONLY" ]; then
   new=""
   for id in $PROFILE_TOOLS; do in_list "$id" "$S_SEEN $TOOLS" || new="$new $id"; done
   if [ -n "$new" ]; then
@@ -233,9 +242,38 @@ ask_clipboard() {
   [ "$d" = Yes ] && NVIM_CLIPBOARD=true || NVIM_CLIPBOARD=false
 }
 
+# Work Git identity; Enter keeps the saved one.
+ask_work() {
+  local h e
+  printf '? Work Git host, e.g. gitlab.example.com (Enter = %s): ' "${S_WORK_HOST:-none}" >/dev/tty
+  read -r h </dev/tty || h=""
+  WORK_HOST="${h:-$S_WORK_HOST}"
+  if [ -n "$WORK_HOST" ]; then
+    printf '? Work Git email (Enter = %s): ' "${S_WORK_EMAIL:-none}" >/dev/tty
+    read -r e </dev/tty || e=""
+    WORK_EMAIL="${e:-$S_WORK_EMAIL}"
+  fi
+}
+
 ask=false
 interactive && [ "$SYNC" != true ] && ask=true
-if [ "$PROFILE" = tmux-only ]; then
+if [ -n "$ONLY" ]; then
+  # --only: that tool's questions, every time (saved answers preselected)
+  [ "$PROFILE" = tmux-only ] && TMUX_VARIANT=lite
+  if interactive; then
+    case "$ONLY" in
+      neovim)
+        NVIM="$(choose_one "Neovim configuration" "$NVIM" default "lite (planned)")"
+        [ -n "$OPT_CLIPBOARD" ] || ask_clipboard
+        ;;
+      tmux)
+        [ "$PROFILE" = tmux-only ] || TMUX_VARIANT="$(choose_one "tmux configuration" "$TMUX_VARIANT" default lite)"
+        ask_prefix
+        ;;
+      git) ask_work ;;
+    esac
+  fi
+elif [ "$PROFILE" = tmux-only ]; then
   TOOLS=tmux RUNTIMES="" APPS="" NVIM=none TMUX_VARIANT=lite DOT=false AGENTS=false MODE=configure
   [ "$ask" = true ] && ask_prefix
 elif [ "$ask" = true ]; then
@@ -258,18 +296,11 @@ elif [ "$ask" = true ]; then
     m="$(choose_one "Installation mode" "$([ "$MODE" = configure ] && echo "Configure only" || echo "Install + configure")" \
       "Install + configure" "Configure only")"
     [ "$m" = "Configure only" ] && MODE=configure || MODE=install
-    if [ -z "$S_PROFILE" ] && [ -z "$S_WORK" ] && in_list git "$TOOLS"; then
-      printf '? Work Git host, e.g. gitlab.example.com (Enter = none): ' >/dev/tty
-      read -r WORK_HOST </dev/tty || WORK_HOST=""
-      if [ -n "$WORK_HOST" ]; then
-        printf '? Work Git email: ' >/dev/tty
-        read -r WORK_EMAIL </dev/tty || WORK_EMAIL=""
-      fi
-    fi
+    [ -z "$S_PROFILE" ] && [ -z "$S_WORK" ] && in_list git "$TOOLS" && ask_work
   fi
 fi
 # --sync: offer clipboard-over-ssh once, like new profile defaults, until it is answered
-if [ "$SYNC" = true ] && [ "$same" = true ] && [ -z "$S_NVIM_CLIPBOARD" ] && [ -z "$OPT_CLIPBOARD" ] &&
+if [ "$SYNC" = true ] && [ -z "$ONLY" ] && [ "$same" = true ] && [ -z "$S_NVIM_CLIPBOARD" ] && [ -z "$OPT_CLIPBOARD" ] &&
   in_list neovim "$TOOLS" && interactive; then
   say "new option since your last selection: clipboard-over-ssh"
   ask_clipboard
@@ -297,6 +328,12 @@ WORK_HOST="${WORK_HOST:-}" WORK_EMAIL="${WORK_EMAIL:-}"
 [ -n "$WORK_HOST" ] && [ -z "$WORK_EMAIL" ] && { warn "no work email given; skipping the work identity"; WORK_HOST=""; }
 case "$WORK_HOST" in *[!A-Za-z0-9.-]*) die "invalid work Git host: $WORK_HOST" ;; esac
 case "$WORK_EMAIL" in *[!A-Za-z0-9.@_+-]*) die "invalid work Git email: $WORK_EMAIL" ;; esac
+
+if [ -n "$ONLY" ]; then
+  . "$REPO/installer/lib/only.sh"
+  sync_only "$ONLY"
+  exit $?
+fi
 
 # --- review ----------------------------------------------------------------------
 
