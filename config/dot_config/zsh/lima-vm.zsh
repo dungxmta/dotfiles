@@ -109,27 +109,32 @@ _limavm_ips() {
 # preferred state listed first. Returns 1 when there are no instances.
 _limavm_rows() {
   emulate -L zsh
-  local prefer=$1 raw line n st cpu mem disk arch vt ip w=4
+  local prefer=$1 raw line n st cpu mem disk arch vt fa ip ag w=4
   local -a names first rest
-  local -A row_st row_cpu row_mem row_disk row_arch row_vt
-  raw=$(limactl list --format $'{{.Name}}\t{{.Status}}\t{{.CPUs}}\t{{.Memory}}\t{{.Disk}}\t{{.Arch}}\t{{.VMType}}' 2>/dev/null)
+  local -A row_st row_cpu row_mem row_disk row_arch row_vt row_fa
+  raw=$(limactl list --format $'{{.Name}}\t{{.Status}}\t{{.CPUs}}\t{{.Memory}}\t{{.Disk}}\t{{.Arch}}\t{{.VMType}}\t{{.Config.SSH.ForwardAgent}}' 2>/dev/null)
   [[ -n $raw ]] || return 1
   _limavm_ips
   for line in "${(@f)raw}"; do
-    IFS=$'\t' read -r n st cpu mem disk arch vt <<<"$line"
+    IFS=$'\t' read -r n st cpu mem disk arch vt fa <<<"$line"
     names+=($n); (( ${#n} > w )) && w=${#n}
-    row_st[$n]=$st row_cpu[$n]=$cpu row_arch[$n]=$arch row_vt[$n]=$vt
+    row_st[$n]=$st row_cpu[$n]=$cpu row_arch[$n]=$arch row_vt[$n]=$vt row_fa[$n]=$fa
     row_mem[$n]=$(printf '%gG' $(( mem / 1073741824.0 )))
     row_disk[$n]=$(printf '%gG' $(( disk / 1073741824.0 )))
   done
   for n in $names; do
     if [[ -n $prefer && ${(L)row_st[$n]} == $prefer ]]; then first+=($n); else rest+=($n); fi
   done
-  printf "%-${w}s  %-8s %3s %6s %6s  %-8s %-4s %s\n" NAME STATE CPU RAM DISK ARCH VM IP
+  printf "%-${w}s  %-8s %3s %6s %6s  %-8s %-4s %-15s %s\n" NAME STATE CPU RAM DISK ARCH VM IP SSH-AGENT
   for n in $first $rest; do
-    ip=-; [[ ${row_st[$n]} == Running ]] && ip=${_limavm_ip[$n]:--}
-    printf "%-${w}s  %-8s %3s %6s %6s  %-8s %-4s %s\n" \
-      $n ${row_st[$n]} ${row_cpu[$n]} ${row_mem[$n]} ${row_disk[$n]} ${row_arch[$n]} ${row_vt[$n]} $ip
+    # agent forwarding of the current boot; a stopped VM decides on its next start
+    ip=- ag=-
+    if [[ ${row_st[$n]} == Running ]]; then
+      ip=${_limavm_ip[$n]:--}
+      [[ ${row_fa[$n]} == true ]] && ag=on || ag=off
+    fi
+    printf "%-${w}s  %-8s %3s %6s %6s  %-8s %-4s %-15s %s\n" \
+      $n ${row_st[$n]} ${row_cpu[$n]} ${row_mem[$n]} ${row_disk[$n]} ${row_arch[$n]} ${row_vt[$n]} $ip $ag
   done
 }
 
@@ -1089,7 +1094,7 @@ vm — Lima VM manager (zsh functions around limactl)
 
   vm                         interactive dashboard
   vm ls [limactl list args]  list instances (limactl list)
-  vm ps                      status table: name, state, cpu, ram, disk, arch, backend, ip
+  vm ps                      status table: name, state, cpu, ram, disk, arch, backend, ip, ssh-agent
   vm up [NAME] [--agent|--no-agent]
                              start (picker lists stopped first); every start asks whether
                              to use the Mac's SSH keys this boot (agent forwarding), unless
