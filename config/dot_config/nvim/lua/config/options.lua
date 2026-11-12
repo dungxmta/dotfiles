@@ -9,3 +9,5 @@ g.snacks_animate = false
 
 opt.expandtab = true -- Use spaces instead of tabs
 opt.tabstop = 4 -- Number of spaces tabs count for
+
+require("config.clipboard_over_ssh")

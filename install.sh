@@ -16,6 +16,11 @@ usage: ./install.sh [options]
   --with-agents         clone the agents repo (agent config + skills) and run
                         its installer; $AGENTS_DIR, default ~/SYNC/agents
   --without-agents      stop syncing it (links and the clone are left in place)
+  --with-clipboard-over-ssh
+                        nvim over SSH: yanks go to the local clipboard (via the
+                        terminal; default on Linux)
+  --without-clipboard-over-ssh
+                        turn it off
   --configure-only      this run only: apply configuration, install no packages
   --checkout full|sparse
   --sync                no questions: reuse saved answers, offer new profile
@@ -39,7 +44,7 @@ EOF
 }
 
 REPO="$(cd "$(dirname "$0")" && pwd)"
-OPT_PROFILE="" OPT_TOOLS="" OPT_DOT="" OPT_AGENTS="" OPT_CHECKOUT="" OPT_MODE=""
+OPT_PROFILE="" OPT_TOOLS="" OPT_DOT="" OPT_AGENTS="" OPT_CLIPBOARD="" OPT_CHECKOUT="" OPT_MODE=""
 SYNC=false UPGRADE=false DRY_RUN=false ASSUME_YES=false SELECT_TOOLS=false
 OUTDATED_ONLY=false UPGRADE_ALL=false UPGRADE_NAMES=""
 while [ $# -gt 0 ]; do
@@ -51,6 +56,8 @@ while [ $# -gt 0 ]; do
     --without-dot) OPT_DOT=false ;;
     --with-agents) OPT_AGENTS=true ;;
     --without-agents) OPT_AGENTS=false ;;
+    --with-clipboard-over-ssh) OPT_CLIPBOARD=true ;;
+    --without-clipboard-over-ssh) OPT_CLIPBOARD=false ;;
     --configure-only) OPT_MODE=configure ;;
     --checkout) OPT_CHECKOUT="${2:?--checkout needs full or sparse}"; shift ;;
     --sync) SYNC=true ;;
@@ -95,7 +102,7 @@ AGENTS_URL="https://github.com/dungxmta/agents.git"
 
 # --- saved state ----------------------------------------------------------------
 
-S_PROFILE="" S_TOOLS="" S_RUNTIMES="" S_APPS="" S_NVIM="" S_TMUX="" S_PREFIX="" S_DOT="" S_AGENTS="" S_MODE=""
+S_PROFILE="" S_TOOLS="" S_RUNTIMES="" S_APPS="" S_NVIM="" S_NVIM_CLIPBOARD="" S_TMUX="" S_PREFIX="" S_DOT="" S_AGENTS="" S_MODE=""
 S_CHECKOUT="" S_SEEN="" S_WORK=""
 load_state() {
   [ -f "$CZ_CONFIG" ] && has chezmoi || return 0
@@ -106,6 +113,7 @@ S_TOOLS={{ get . "tools" | default list | join " " }}
 S_RUNTIMES={{ get . "runtimes" | default list | join " " }}
 S_APPS={{ get . "apps" | default list | join " " }}
 S_NVIM={{ get . "nvimVariant" }}
+S_NVIM_CLIPBOARD={{ get . "nvimClipboardOverSsh" }}
 S_TMUX={{ get . "tmuxVariant" }}
 S_PREFIX={{ get . "tmuxPrefix" }}
 S_DOT={{ get . "dotEnabled" }}
@@ -131,7 +139,7 @@ write_state() {
   DOT_REPO="$REPO" DOT_PROFILE="$PROFILE" DOT_CHECKOUT="$CHECKOUT" \
     DOT_TOOLS="$(csv "$TOOLS")" DOT_RUNTIMES="$(csv "$RUNTIMES")" DOT_APPS="$(csv "$APPS")" \
     DOT_MISE_TOOLS="$(csv "$PLAN_MISE")" DOT_DEFAULTS_SEEN="$(csv "$PROFILE_TOOLS")" \
-    DOT_NVIM="$NVIM" DOT_TMUX="$TMUX_VARIANT" DOT_TMUX_PREFIX="$PREFIX" DOT_DOT="$DOT" DOT_AGENTS="$AGENTS" DOT_MODE="$SAVED_MODE" \
+    DOT_NVIM="$NVIM" DOT_NVIM_CLIPBOARD_OVER_SSH="$NVIM_CLIPBOARD" DOT_TMUX="$TMUX_VARIANT" DOT_TMUX_PREFIX="$PREFIX" DOT_DOT="$DOT" DOT_AGENTS="$AGENTS" DOT_MODE="$SAVED_MODE" \
     DOT_WORK_HOST="${WORK_HOST:-}" DOT_WORK_EMAIL="${WORK_EMAIL:-}" \
     chezmoi --config "$1" --source "$REPO" init --no-tty >/dev/null
 }
@@ -165,11 +173,15 @@ if [ "$same" = true ]; then
   TMUX_VARIANT="${S_TMUX:-$PROFILE_TMUX}" PREFIX="${S_PREFIX:-$PROFILE_TMUX_PREFIX}"
   DOT="${S_DOT:-$PROFILE_DOT}" MODE="${S_MODE:-install}" CHECKOUT="${S_CHECKOUT:-$PROFILE_CHECKOUT}"
   AGENTS="${S_AGENTS:-false}"
+  NVIM_CLIPBOARD="${S_NVIM_CLIPBOARD:-}"
 else
   TOOLS="$PROFILE_TOOLS" RUNTIMES="$PROFILE_RUNTIMES" APPS="" NVIM="$PROFILE_NVIM"
   TMUX_VARIANT="$PROFILE_TMUX" PREFIX="$PROFILE_TMUX_PREFIX" DOT="$PROFILE_DOT" MODE=install
   CHECKOUT="$PROFILE_CHECKOUT" AGENTS=false  # agents: opt-in on every profile
+  NVIM_CLIPBOARD=""
 fi
+# clipboard-over-ssh: on by default where you usually SSH in (Linux VMs, devpods)
+[ -n "$NVIM_CLIPBOARD" ] || { [ "$(uname -s)" = Linux ] && NVIM_CLIPBOARD=true || NVIM_CLIPBOARD=false; }
 # First run on an ordinary full clone: keep it full unless --checkout sparse.
 [ -z "$S_CHECKOUT" ] && [ -e "$REPO/.git" ] && ! is_sparse && CHECKOUT=full
 
@@ -204,6 +216,23 @@ ask_prefix() {
   fi
 }
 
+# Prints what clipboard-over-ssh does, with the Lua it installs, then asks.
+ask_clipboard() {
+  local tmpl="$REPO/config/dot_config/nvim/lua/config/empty_clipboard_over_ssh.lua.tmpl" d
+  {
+    say "Neovim: clipboard-over-ssh"
+    say "  yank in nvim over SSH -> your local clipboard (through tmux and the terminal)"
+    say "  every yank, including dd/x, replaces the local clipboard"
+    say "  paste stays local: use the terminal's paste (Cmd-V) to bring local text in"
+    if [ -f "$tmpl" ]; then
+      say "  writes ~/.config/nvim/lua/config/clipboard_over_ssh.lua:"
+      grep -v '^{{' "$tmpl" | sed 's/^/    | /'
+    fi
+  } >/dev/tty
+  d="$(choose_one "Enable clipboard-over-ssh in nvim?" "$([ "$NVIM_CLIPBOARD" = true ] && echo Yes || echo No)" Yes No)"
+  [ "$d" = Yes ] && NVIM_CLIPBOARD=true || NVIM_CLIPBOARD=false
+}
+
 ask=false
 interactive && [ "$SYNC" != true ] && ask=true
 if [ "$PROFILE" = tmux-only ]; then
@@ -214,7 +243,10 @@ elif [ "$ask" = true ]; then
   if [ "$SELECT_TOOLS" != true ]; then
     RUNTIMES="$(choose_many "Language runtimes (mise, global defaults)" "$RUNTIMES" "$RUNTIMES_ALL")"
     [ -n "$PROFILE_APPS_ALLOWED" ] && APPS="$(choose_many "Mac apps (Homebrew casks)" "$APPS" "$PROFILE_APPS_ALLOWED")"
-    in_list neovim "$TOOLS" && NVIM="$(choose_one "Neovim configuration" "$NVIM" default "lite (planned)")"
+    if in_list neovim "$TOOLS"; then
+      NVIM="$(choose_one "Neovim configuration" "$NVIM" default "lite (planned)")"
+      ask_clipboard
+    fi
     if in_list tmux "$TOOLS"; then
       TMUX_VARIANT="$(choose_one "tmux configuration" "$TMUX_VARIANT" default lite)"
       ask_prefix
@@ -241,6 +273,7 @@ case "$PREFIX" in C-[a-z] | M-[a-z] | C-Space) ;; *) die "invalid tmux prefix: '
 [ -n "$OPT_TOOLS" ] && TOOLS="$OPT_TOOLS"
 [ -n "$OPT_DOT" ] && DOT="$OPT_DOT"
 [ -n "$OPT_AGENTS" ] && AGENTS="$OPT_AGENTS"
+[ -n "$OPT_CLIPBOARD" ] && NVIM_CLIPBOARD="$OPT_CLIPBOARD"
 SAVED_MODE="$MODE"  # --configure-only applies to this run only
 [ -n "$OPT_MODE" ] && MODE="$OPT_MODE"
 [ -n "$OPT_CHECKOUT" ] && CHECKOUT="$OPT_CHECKOUT"
@@ -252,7 +285,7 @@ fi
 for id in $TOOLS; do in_list "$id" "$CLI_TOOLS $EXTRA_TOOLS" || die "unknown tool: $id"; done
 for id in $RUNTIMES; do in_list "$id" "$RUNTIMES_ALL" || die "unknown runtime: $id"; done
 for id in $APPS; do in_list "$id" "$PROFILE_APPS_ALLOWED" || die "app not allowed on $PROFILE: $id"; done
-in_list neovim "$TOOLS" || NVIM=none
+in_list neovim "$TOOLS" || NVIM=none NVIM_CLIPBOARD=false
 [ "$NVIM" = none ] && in_list neovim "$TOOLS" && NVIM=default
 WORK_HOST="${WORK_HOST:-}" WORK_EMAIL="${WORK_EMAIL:-}"
 [ -n "$WORK_HOST" ] && [ -z "$WORK_EMAIL" ] && { warn "no work email given; skipping the work identity"; WORK_HOST=""; }
@@ -292,7 +325,7 @@ say "  Shell:      $([ "$PROFILE_SHELL" = zsh ] && echo "zsh + Oh My Zsh + Stars
 if [ "$PROFILE" = tmux-only ]; then say "  Tools:      none (~/.tmux.conf only)"; else say "  Tools:      $n_cli CLI$extras"; fi
 [ -n "$RUNTIMES" ] && say "  Runtimes:   $RUNTIMES (mise)"
 [ -n "$APPS" ] && say "  Apps:       $APPS"
-say "  Neovim:     $NVIM    tmux: $TMUX_VARIANT ($PREFIX)"
+say "  Neovim:     $NVIM$([ "$NVIM_CLIPBOARD" = true ] && echo " (+ clipboard-over-ssh)")    tmux: $TMUX_VARIANT ($PREFIX)"
 say "  Dot helper: $([ "$DOT" = true ] && echo enabled || echo disabled)"
 say "  Agents:     $([ "$AGENTS" = true ] && echo "$AGENTS_DIR (agent config + skills)" || echo disabled)"
 say "  Mode:       $([ "$MODE" = install ] && echo "install + configure" || echo "configure only")"

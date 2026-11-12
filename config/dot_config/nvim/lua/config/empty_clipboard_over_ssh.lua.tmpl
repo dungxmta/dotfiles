@@ -1,0 +1,18 @@
+{{- if .nvimClipboardOverSsh -}}
+-- clipboard-over-ssh (./install.sh asks; --without-clipboard-over-ssh turns it off)
+-- Over SSH (e.g. the Lima VMs) LazyVim turns the clipboard off. Yank to the
+-- local clipboard with OSC 52 instead; tmux passes it on (set-clipboard on).
+-- Paste stays local: tmux can't read that clipboard, so use the terminal's paste (Cmd-V).
+if vim.env.SSH_CONNECTION then
+  local osc52 = require("vim.ui.clipboard.osc52")
+  local function paste()
+    return { vim.fn.split(vim.fn.getreg(""), "\n"), vim.fn.getregtype("") }
+  end
+  vim.opt.clipboard = "unnamedplus"
+  vim.g.clipboard = {
+    name = "OSC 52",
+    copy = { ["+"] = osc52.copy("+"), ["*"] = osc52.copy("*") },
+    paste = { ["+"] = paste, ["*"] = paste },
+  }
+end
+{{- end }}
