@@ -7,6 +7,10 @@
 # off = oh-my-zsh defaults (~/.zsh_history). Per-shell override: ZSH_CURATED_HISTORY=off zsh
 # (REPL vars are exported: a nested off shell inherits them; use `env -u PYTHON_HISTORY -u LESSHISTFILE -u NODE_REPL_HISTORY`).
 : ${ZSH_CURATED_HISTORY:=on}
+# Agent history: on = Claude Code and omp save no prompt history or session transcripts
+# (no --resume/--continue; omp still keeps typed prompts in ~/.omp/agent/history.db).
+# off = their defaults. Per-shell override: AGENT_EPHEMERAL=off zsh. Wipe saved history: agent clear history
+: ${AGENT_EPHEMERAL:=on}
 {{- if not $mac }}
 
 # No terminfo for $TERM here (e.g. xterm-ghostty via limactl shell/ssh) garbles line
@@ -157,6 +161,15 @@ hkeep() {
   (umask 077; print -r -- "${cmd//$nl/\\$nl}" >>"$file")
   print -r -- "hkeep: kept: $cmd"
 }
+
+## agents (flag AGENT_EPHEMERAL at top of file)
+if [[ $AGENT_EPHEMERAL == on ]]; then
+  export CLAUDE_CODE_SKIP_PROMPT_HISTORY=1
+  omp() { command omp --no-session "$@"; }
+else
+  unset CLAUDE_CODE_SKIP_PROMPT_HISTORY
+  (( $+functions[omp] )) && unfunction omp
+fi
 
 # Key bindings: zsh-vi-mode initializes lazily and resets bindings, so apply
 # ours from its after-init hook (or right away when the plugin is missing).
