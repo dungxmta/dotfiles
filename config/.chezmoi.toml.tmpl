@@ -29,7 +29,6 @@
 {{- range $k := list "tools" "runtimes" "miseTools" "apps" }}{{ if not (hasKey $d $k) }}{{ $_ := set $d $k list }}{{ end }}{{ end -}}
 {{- if not (hasKey $d "dotEnabled") }}{{ $_ := set $d "dotEnabled" false }}{{ end -}}
 {{- if not (hasKey $d "agentsEnabled") }}{{ $_ := set $d "agentsEnabled" false }}{{ end -}}
-{{- if not (hasKey $d "nvimClipboardOverSsh") }}{{ $_ := set $d "nvimClipboardOverSsh" false }}{{ end -}}
 sourceDir = {{ env "DOT_REPO" | default .chezmoi.workingTree | quote }}
 
 {{ dict "data" $d | toToml }}

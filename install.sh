@@ -268,6 +268,12 @@ elif [ "$ask" = true ]; then
     fi
   fi
 fi
+# --sync: offer clipboard-over-ssh once, like new profile defaults, until it is answered
+if [ "$SYNC" = true ] && [ "$same" = true ] && [ -z "$S_NVIM_CLIPBOARD" ] && [ -z "$OPT_CLIPBOARD" ] &&
+  in_list neovim "$TOOLS" && interactive; then
+  say "new option since your last selection: clipboard-over-ssh"
+  ask_clipboard
+fi
 case "$PREFIX" in C-[a-z] | M-[a-z] | C-Space) ;; *) die "invalid tmux prefix: '$PREFIX' (C-x, M-x or C-Space)" ;; esac
 
 [ -n "$OPT_TOOLS" ] && TOOLS="$OPT_TOOLS"
