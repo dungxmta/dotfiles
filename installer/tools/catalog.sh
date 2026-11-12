@@ -46,6 +46,7 @@ tool_targets() {
     lazygit | starship | mise) echo ".config/$1" ;;
     tmux) echo ".tmux.conf .config/tmux" ;;
     neovim) echo ".config/nvim" ;;
+    herdr) echo ".config/herdr" ;;  # a profile module, not a tool (dot sync herdr)
   esac
 }
 

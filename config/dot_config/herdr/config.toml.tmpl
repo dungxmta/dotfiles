@@ -170,7 +170,9 @@ description = "herdr-plus: projects"
 # Capture mouse input for Herdr's mouse UI.
 # Set false to let the terminal handle normal clicks, such as Cmd-clicking URLs.
 # Pane apps like lazygit and btop can still receive mouse when they request it.
-# mouse_capture = true
+# Set by ./install.sh (dot sync herdr). false: the terminal selects, so Cmd-C works in
+# terminals without OSC 52 (Warp); with true, Shift-drag still selects in most terminals.
+{{ if hasKey . "herdrMouseCapture" }}mouse_capture = {{ .herdrMouseCapture }}{{ else }}# mouse_capture = true{{ end }}
 
 # Optional modifier that forwards right-click hold/drag gestures to pane apps instead of opening Herdr's pane menu.
 # Empty/off disables this. Shift is intentionally unsupported because terminals commonly reserve Shift+mouse.

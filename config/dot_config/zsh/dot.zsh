@@ -55,7 +55,7 @@ usage: dot <command>
   status       git status of the repo + chezmoi status
   sync         reconcile profile, tools and sparse checkout (install.sh --sync)
   sync TOOL    ask TOOL's questions again, preview and apply only its files
-               (nvim, tmux, git; others just re-render)
+               (nvim, tmux, git, herdr; others just re-render)
   tools        choose tools interactively (install.sh --select-tools)
   outdated     list newer versions: tools, runtimes, plugins, repo pins
   upgrade      pick what to upgrade from that list

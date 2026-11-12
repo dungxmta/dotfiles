@@ -20,6 +20,7 @@
 {{- with env "DOT_DOT" }}{{ $_ := set $d "dotEnabled" (eq . "true") }}{{ end -}}
 {{- with env "DOT_AGENTS" }}{{ $_ := set $d "agentsEnabled" (eq . "true") }}{{ end -}}
 {{- with env "DOT_NVIM_CLIPBOARD_OVER_SSH" }}{{ $_ := set $d "nvimClipboardOverSsh" (eq . "true") }}{{ end -}}
+{{- with env "DOT_HERDR_MOUSE_CAPTURE" }}{{ $_ := set $d "herdrMouseCapture" (eq . "true") }}{{ end -}}
 {{- if and (env "DOT_WORK_HOST") (env "DOT_WORK_EMAIL") }}
 {{-   $w := get $d "work" | default dict }}
 {{-   $_ := set $w "host" (env "DOT_WORK_HOST") }}{{ $_ := set $w "email" (env "DOT_WORK_EMAIL") }}

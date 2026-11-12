@@ -21,12 +21,14 @@ usage: ./install.sh [options]
                         terminal; default on Linux)
   --without-clipboard-over-ssh
                         turn it off
+  --with-herdr-mouse    herdr captures the mouse (its click/drag UI; the default)
+  --without-herdr-mouse the terminal selects text, so Cmd-C works in any terminal
   --configure-only      this run only: apply configuration, install no packages
   --checkout full|sparse
   --sync                no questions: reuse saved answers, offer new profile
                         defaults, expand the sparse checkout, install missing
                         tools, preview and apply configuration
-  --only TOOL           with --sync: ask only TOOL's questions (nvim, tmux, git),
+  --only TOOL           with --sync: ask only TOOL's questions (nvim, tmux, git, herdr),
                         then preview and apply only TOOL's files (dot sync TOOL)
   --outdated            list what has a newer version (tools, runtimes, repo pins)
   --upgrade [NAME...]   upgrade those, or pick from the outdated list; one name
@@ -46,7 +48,7 @@ EOF
 }
 
 REPO="$(cd "$(dirname "$0")" && pwd)"
-OPT_PROFILE="" OPT_TOOLS="" OPT_DOT="" OPT_AGENTS="" OPT_CLIPBOARD="" OPT_CHECKOUT="" OPT_MODE="" ONLY=""
+OPT_PROFILE="" OPT_TOOLS="" OPT_DOT="" OPT_AGENTS="" OPT_CLIPBOARD="" OPT_HERDR_MOUSE="" OPT_CHECKOUT="" OPT_MODE="" ONLY=""
 SYNC=false UPGRADE=false DRY_RUN=false ASSUME_YES=false SELECT_TOOLS=false
 OUTDATED_ONLY=false UPGRADE_ALL=false UPGRADE_NAMES=""
 while [ $# -gt 0 ]; do
@@ -60,6 +62,8 @@ while [ $# -gt 0 ]; do
     --without-agents) OPT_AGENTS=false ;;
     --with-clipboard-over-ssh) OPT_CLIPBOARD=true ;;
     --without-clipboard-over-ssh) OPT_CLIPBOARD=false ;;
+    --with-herdr-mouse) OPT_HERDR_MOUSE=true ;;
+    --without-herdr-mouse) OPT_HERDR_MOUSE=false ;;
     --configure-only) OPT_MODE=configure ;;
     --checkout) OPT_CHECKOUT="${2:?--checkout needs full or sparse}"; shift ;;
     --sync) SYNC=true ;;
@@ -107,7 +111,7 @@ AGENTS_URL="https://github.com/dungxmta/agents.git"
 
 # --- saved state ----------------------------------------------------------------
 
-S_PROFILE="" S_TOOLS="" S_RUNTIMES="" S_APPS="" S_NVIM="" S_NVIM_CLIPBOARD="" S_TMUX="" S_PREFIX="" S_DOT="" S_AGENTS="" S_MODE=""
+S_PROFILE="" S_TOOLS="" S_RUNTIMES="" S_APPS="" S_NVIM="" S_NVIM_CLIPBOARD="" S_HERDR_MOUSE="" S_TMUX="" S_PREFIX="" S_DOT="" S_AGENTS="" S_MODE=""
 S_CHECKOUT="" S_SEEN="" S_MISE="" S_WORK="" S_WORK_HOST="" S_WORK_EMAIL=""
 load_state() {
   [ -f "$CZ_CONFIG" ] && has chezmoi || return 0
@@ -119,6 +123,7 @@ S_RUNTIMES={{ get . "runtimes" | default list | join " " }}
 S_APPS={{ get . "apps" | default list | join " " }}
 S_NVIM={{ get . "nvimVariant" }}
 S_NVIM_CLIPBOARD={{ get . "nvimClipboardOverSsh" }}
+S_HERDR_MOUSE={{ get . "herdrMouseCapture" }}
 S_TMUX={{ get . "tmuxVariant" }}
 S_PREFIX={{ get . "tmuxPrefix" }}
 S_DOT={{ get . "dotEnabled" }}
@@ -147,7 +152,7 @@ write_state() {
   DOT_REPO="$REPO" DOT_PROFILE="$PROFILE" DOT_CHECKOUT="$CHECKOUT" \
     DOT_TOOLS="$(csv "$TOOLS")" DOT_RUNTIMES="$(csv "$RUNTIMES")" DOT_APPS="$(csv "$APPS")" \
     DOT_MISE_TOOLS="$(csv "$PLAN_MISE")" DOT_DEFAULTS_SEEN="$(csv "$SEEN_TOOLS")" \
-    DOT_NVIM="$NVIM" DOT_NVIM_CLIPBOARD_OVER_SSH="$NVIM_CLIPBOARD" DOT_TMUX="$TMUX_VARIANT" DOT_TMUX_PREFIX="$PREFIX" DOT_DOT="$DOT" DOT_AGENTS="$AGENTS" DOT_MODE="$SAVED_MODE" \
+    DOT_NVIM="$NVIM" DOT_NVIM_CLIPBOARD_OVER_SSH="$NVIM_CLIPBOARD" DOT_HERDR_MOUSE_CAPTURE="$HERDR_MOUSE" DOT_TMUX="$TMUX_VARIANT" DOT_TMUX_PREFIX="$PREFIX" DOT_DOT="$DOT" DOT_AGENTS="$AGENTS" DOT_MODE="$SAVED_MODE" \
     DOT_WORK_HOST="${WORK_HOST:-}" DOT_WORK_EMAIL="${WORK_EMAIL:-}" \
     chezmoi --config "$1" --source "$REPO" init --no-tty >/dev/null
 }
@@ -183,11 +188,13 @@ if [ "$same" = true ]; then
   DOT="${S_DOT:-$PROFILE_DOT}" MODE="${S_MODE:-install}" CHECKOUT="${S_CHECKOUT:-$PROFILE_CHECKOUT}"
   AGENTS="${S_AGENTS:-false}"
   NVIM_CLIPBOARD="${S_NVIM_CLIPBOARD:-}"
+  HERDR_MOUSE="${S_HERDR_MOUSE:-}"
 else
   TOOLS="$PROFILE_TOOLS" RUNTIMES="$PROFILE_RUNTIMES" APPS="" NVIM="$PROFILE_NVIM"
   TMUX_VARIANT="$PROFILE_TMUX" PREFIX="$PROFILE_TMUX_PREFIX" DOT="$PROFILE_DOT" MODE=install
   CHECKOUT="$PROFILE_CHECKOUT" AGENTS=false  # agents: opt-in on every profile
   NVIM_CLIPBOARD=""
+  HERDR_MOUSE=""  # empty: herdr's default (capture), or the value already saved
 fi
 # clipboard-over-ssh: on by default where you usually SSH in (Linux VMs, devpods)
 [ -n "$NVIM_CLIPBOARD" ] || { [ "$(uname -s)" = Linux ] && NVIM_CLIPBOARD=true || NVIM_CLIPBOARD=false; }
@@ -242,6 +249,18 @@ ask_clipboard() {
   [ "$d" = Yes ] && NVIM_CLIPBOARD=true || NVIM_CLIPBOARD=false
 }
 
+# herdr's mouse capture: its mouse UI, or the terminal's own selection (Cmd-C).
+ask_herdr_mouse() {
+  local d
+  {
+    say "herdr: mouse capture"
+    say "  Yes: herdr's mouse UI (click panes, drag to copy via OSC 52; Shift-drag = terminal selection)"
+    say "  No:  the terminal selects text, so Cmd-C works even without OSC 52 (Warp over SSH)"
+  } >/dev/tty
+  d="$(choose_one "Let herdr capture the mouse?" "$([ "$HERDR_MOUSE" = false ] && echo No || echo Yes)" Yes No)"
+  [ "$d" = Yes ] && HERDR_MOUSE=true || HERDR_MOUSE=false
+}
+
 # Work Git identity; Enter keeps the saved one.
 ask_work() {
   local h e
@@ -271,6 +290,7 @@ if [ -n "$ONLY" ]; then
         ask_prefix
         ;;
       git) ask_work ;;
+      herdr) [ -n "$OPT_HERDR_MOUSE" ] || ask_herdr_mouse ;;
     esac
   fi
 elif [ "$PROFILE" = tmux-only ]; then
@@ -289,6 +309,7 @@ elif [ "$ask" = true ]; then
       TMUX_VARIANT="$(choose_one "tmux configuration" "$TMUX_VARIANT" default lite)"
       ask_prefix
     fi
+    case "$PROFILE" in devpod) ;; *) ask_herdr_mouse ;; esac  # herdr's config ships everywhere else
     d="$(choose_one "Install dot CLI helper?" "$([ "$DOT" = true ] && echo Yes || echo No)" Yes No)"
     [ "$d" = Yes ] && DOT=true || DOT=false
     d="$(choose_one "Install AI agent config + skills (agents repo)?" "$([ "$AGENTS" = true ] && echo Yes || echo No)" No Yes)"
@@ -311,6 +332,7 @@ case "$PREFIX" in C-[a-z] | M-[a-z] | C-Space) ;; *) die "invalid tmux prefix: '
 [ -n "$OPT_DOT" ] && DOT="$OPT_DOT"
 [ -n "$OPT_AGENTS" ] && AGENTS="$OPT_AGENTS"
 [ -n "$OPT_CLIPBOARD" ] && NVIM_CLIPBOARD="$OPT_CLIPBOARD"
+[ -n "$OPT_HERDR_MOUSE" ] && HERDR_MOUSE="$OPT_HERDR_MOUSE"
 SAVED_MODE="$MODE"  # --configure-only applies to this run only
 [ -n "$OPT_MODE" ] && MODE="$OPT_MODE"
 [ -n "$OPT_CHECKOUT" ] && CHECKOUT="$OPT_CHECKOUT"
@@ -369,6 +391,7 @@ if [ "$PROFILE" = tmux-only ]; then say "  Tools:      none (~/.tmux.conf only)"
 [ -n "$RUNTIMES" ] && say "  Runtimes:   $RUNTIMES (mise)"
 [ -n "$APPS" ] && say "  Apps:       $APPS"
 say "  Neovim:     $NVIM$([ "$NVIM_CLIPBOARD" = true ] && echo " (+ clipboard-over-ssh)")    tmux: $TMUX_VARIANT ($PREFIX)"
+[ -n "$HERDR_MOUSE" ] && say "  herdr:      mouse capture $([ "$HERDR_MOUSE" = true ] && echo on || echo off)"
 say "  Dot helper: $([ "$DOT" = true ] && echo enabled || echo disabled)"
 say "  Agents:     $([ "$AGENTS" = true ] && echo "$AGENTS_DIR (agent config + skills)" || echo disabled)"
 say "  Mode:       $([ "$MODE" = install ] && echo "install + configure" || echo "configure only")"

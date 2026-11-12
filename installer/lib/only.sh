@@ -3,8 +3,8 @@
 
 sync_only() {
   local tool="$1" t managed targets="" changes st path backup="" state_changed=true
-  in_list "$tool" "$CLI_TOOLS $EXTRA_TOOLS" || die "unknown tool: $tool"
-  in_list "$tool" "$TOOLS" || die "$tool isn't selected (dot tools)"
+  in_list "$tool" "$CLI_TOOLS $EXTRA_TOOLS herdr" || die "unknown tool: $tool"
+  [ "$tool" = herdr ] || in_list "$tool" "$TOOLS" || die "$tool isn't selected (dot tools)"
   has chezmoi || die "no chezmoi yet: run ./install.sh first"
   [ -n "$(tool_targets "$tool")" ] || { say "$tool has no configuration in the dotfiles"; return 0; }
 
