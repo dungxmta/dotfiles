@@ -59,4 +59,6 @@ EOT
   [ -n "$backup" ] && say "backup: $BACKUP_DIR"
   if [ -n "$changes" ]; then chezmoi apply --force $targets || die "chezmoi apply failed"; fi
   say "$tool: done"
+  [ "$tool" = herdr ] && [ -n "$changes" ] && say "reload the running herdr: herdr server reload-config"
+  return 0
 }
