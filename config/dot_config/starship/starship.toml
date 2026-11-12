@@ -23,6 +23,10 @@ vicmd_symbol = "[❮](bold green)"
 [directory]
 truncation_length = 3
 
+# shown over ssh (in a VM); nf-fa-globe instead of the color 🌐 emoji
+[hostname]
+ssh_symbol = " "
+
 [git_branch]
 format =  '[$symbol$branch(:$remote_branch)]($style) '
 
