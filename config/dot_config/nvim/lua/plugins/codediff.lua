@@ -1,6 +1,48 @@
 -- Also used as git mergetool: ~/.config/zsh/script/git-mergetool-codediff.sh
 -- Defaults already give side-by-side diffs, explorer auto-refresh and the bottom merge result pane.
 -- Keymaps below are CodeDiff's full table (buffer-local in CodeDiff tabs, g? for help); "*" marks a change.
+
+-- Pick a branch, remote branch or tag (most recent first); <CR> with no match uses the typed text (sha, HEAD~3)
+local function pick_rev(title, on_pick)
+  Snacks.picker.pick({
+    title = title,
+    finder = "proc",
+    cmd = "git",
+    args = {
+      "for-each-ref",
+      "--sort=-committerdate",
+      "--format=%(refname:short)",
+      "refs/heads",
+      "refs/remotes",
+      "refs/tags",
+    },
+    cwd = Snacks.git.get_root(),
+    transform = function(item)
+      item.rev = item.text
+    end,
+    format = "text",
+    preview = function(ctx)
+      Snacks.picker.preview.cmd({ "git", "log", "--oneline", "--decorate", "--color", "-50", ctx.item.rev }, ctx)
+    end,
+    confirm = function(picker, item)
+      local rev = item and item.rev or vim.trim(picker.input.filter.pattern)
+      picker:close()
+      if rev ~= "" then
+        on_pick(rev)
+      end
+    end,
+  })
+end
+
+-- Two picks, A (left) then B (right): sep nil runs "CodeDiff A B", "..." runs "CodeDiff A...B"
+local function pick_two(sep)
+  pick_rev("Base (left)", function(a)
+    pick_rev("Compare " .. a .. " with (right)", function(b)
+      vim.cmd.CodeDiff({ args = sep and { a .. sep .. b } or { a, b } })
+    end)
+  end)
+end
+
 return {
   {
     "folke/which-key.nvim",
@@ -24,6 +66,38 @@ return {
           vim.cmd.CodeDiff({ args = { "merge", vim.fn.expand("%:p") } })
         end,
         desc = "Merge Conflicts (File)",
+      },
+      {
+        "<leader>gdb",
+        function()
+          pick_rev("Diff working tree vs", function(rev)
+            vim.cmd.CodeDiff({ args = { rev } })
+          end)
+        end,
+        desc = "Diff vs Rev",
+      },
+      {
+        "<leader>gdB",
+        function()
+          pick_rev("Diff working tree vs merge-base of", function(rev)
+            vim.cmd.CodeDiff({ args = { rev .. "..." } })
+          end)
+        end,
+        desc = "Diff vs Rev (merge-base)",
+      },
+      {
+        "<leader>gdc",
+        function()
+          pick_two()
+        end,
+        desc = "Diff Two Revs",
+      },
+      {
+        "<leader>gdC",
+        function()
+          pick_two("...")
+        end,
+        desc = "Diff Two Revs (merge-base)",
       },
       { "<leader>gH", "<cmd>CodeDiff history<cr>", desc = "Git History" },
     },
