@@ -59,18 +59,19 @@
 	tabs = 2
 	features = decorations
 
-; Merge with diffview or nvimdiff (default is vimdiff)
+; Merge with codediff or nvimdiff (default is vimdiff)
 [merge]
 	conflictStyle = diff3
-	tool = diffview
+	tool = codediff
 	; tool = nvimdiff
 	
 [mergetool]
 	prompt = false
 	keepBackup = false
 
-[mergetool "diffview"]
-	cmd = ~/.config/zsh/script/git-mergetool-diffview.sh
+[mergetool "codediff"]
+	cmd = ~/.config/zsh/script/git-mergetool-codediff.sh \"$MERGED\"
+	trustExitCode = true
 
 [mergetool "nvimdiff"]
 	layout = "LOCAL,BASE,REMOTE / MERGED"
