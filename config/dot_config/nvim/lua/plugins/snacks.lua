@@ -268,6 +268,23 @@ return {
         end,
         desc = "Lazygit",
       },
+      -- <leader>gd is the "git diff" group (see codediff.lua): move LazyVim's git_diff pickers into it
+      { "<leader>gd", false },
+      { "<leader>gD", false },
+      {
+        "<leader>gdh",
+        function()
+          Snacks.picker.git_diff()
+        end,
+        desc = "Git Diff (hunks)",
+      },
+      {
+        "<leader>gdH",
+        function()
+          Snacks.picker.git_diff({ base = "origin", group = true })
+        end,
+        desc = "Git Diff (origin)",
+      },
       -- {
       --   "<leader>go",
       --   function()

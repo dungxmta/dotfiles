@@ -23,9 +23,15 @@ return {
     {
       "\\",
       function()
+        -- in a CodeDiff tab: focus its Explorer, or hide it when already there (see codediff.lua)
+        local action = vim.bo.filetype == "codediff-explorer" and "toggle" or "focus"
+        local plug = "<Plug>(codediff-" .. action .. "-explorer)"
+        if vim.fn.maparg(plug, "n") ~= "" then
+          return vim.api.nvim_feedkeys(vim.keycode(plug), "m", false)
+        end
         require("mini.files").open(vim.api.nvim_buf_get_name(0), true)
       end,
-      desc = "Open mini.files (Directory of Current File)",
+      desc = "Open mini.files / CodeDiff Explorer",
     },
 
     {
