@@ -111,8 +111,21 @@ return {
           vim.keymap.set("n", "e", "gf", vim.tbl_extend("force", opts, { desc = "Open file in editor" }))
         end,
       })
+      -- Name the which-key "t" group (tl/tc) in every buffer CodeDiff shows; its User events fire before buffers swap in
+      vim.api.nvim_create_autocmd("BufWinEnter", {
+        callback = function(ev)
+          local lifecycle = package.loaded["codediff.ui.lifecycle"]
+          local ok, wk = pcall(require, "which-key")
+          if ok and lifecycle and lifecycle.get_session(vim.api.nvim_get_current_tabpage()) then
+            wk.add({ "t", group = "toggle", buffer = ev.buf })
+          end
+        end,
+      })
     end,
     opts = {
+      diff = {
+        compact = true, -- fold unchanged regions by default; tc toggles
+      },
       keymaps = {
         view = {
           quit = "q",
@@ -134,7 +147,7 @@ return {
           hunk_textobject = "ih",
           align_move = "gm",
           toggle_layout = "tl", -- * t (frees the t motion)
-          toggle_compact = "tf", -- * gc (frees comment)
+          toggle_compact = "tc", -- * gc (frees comment)
           show_help = "g?",
         },
         explorer = {
