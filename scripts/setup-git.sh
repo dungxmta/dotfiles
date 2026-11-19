@@ -6,6 +6,7 @@
 #        dot git setup [account...]   auth key: method, make, upload, test; then signing
 #        dot git renew [account]      new key: 1) auth  2) signing  3) both
 #        dot git sign [account] [1-4|secretive|yubikey|key|none]
+#        dot git ssh [clean]          keys in use, old keys (~/.ssh/old/), loose files; clean up
 #   account  github | gitlab | work (Linux: github work); omitted = asked
 #   Every choice is a numbered menu. Asked once per account and remembered: hardware-only
 #   (Secretive / YubiKey keys only, never exportable files) and key expiry days.
@@ -27,6 +28,7 @@
 #   ~/.ssh/allowed_signers            every signing key used here (git log, verify)
 #   ~/.config/git/signing-<account>   included by gitconfig-<account>; missing = unsigned
 #   ~/.config/git/dotgit              per account: hardware, auth, touch, reuse, days
+#   ~/.ssh/old/<stamp>-<reason>/      keys moved aside (renew, replaced), one folder per run
 # A VM only uses the Mac's hardware keys (vm up --agent): it never makes or renews them.
 # Old forms still work: --test (= status), <account> --new (= renew), sign ... --days N --pin.
 #
@@ -46,6 +48,8 @@ ALLOWED="$HOME/.ssh/allowed_signers"
 STATE="$HOME/.config/git/dotgit"
 CONF_DIR="$HOME/.ssh/dotgit"
 CM_DIR="$HOME/.ssh/cm"
+OLD_DIR="$HOME/.ssh/old"
+old_event="" # this run's folder in OLD_DIR
 WRAPPER="$HOME/.ssh/ssh-keygen-sign" # chezmoi-managed: ssh-keygen against Secretive's agent
 if [[ "$mac" == true ]]; then
   SECRETIVE_SOCK="$HOME/Library/Containers/com.maxgoedjen.Secretive.SecretAgent/Data/socket.ssh"
@@ -53,13 +57,13 @@ else
   SECRETIVE_SOCK="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/secretive.sock" # vm up --agent
 fi
 
-usage() { sed -n '4,11p' "$0"; }
+usage() { sed -n '4,12p' "$0"; }
 
 # cmd: menu | status | setup | renew | sign. Flags are the old shortcuts.
 cmd=menu new=false pin=false days="" args="" method=""
 case "${1:-}" in
   "") ;;
-  status | setup | renew | sign) cmd="$1"; shift ;;
+  status | setup | renew | sign | ssh) cmd="$1"; shift ;;
   -h | --help | help) usage; exit 0 ;;
   *) cmd=setup ;; # old form: dot git <account>... [--new] [--test]
 esac
@@ -189,16 +193,26 @@ confirm() {
   fi
 }
 
-# Move a key pair aside: <key> -> <key>.bak-<stamp>, <key>.pub -> <key>.bak-<stamp>.pub.
+# retire <key> <reason>: move <key>[.pub] into this run's ~/.ssh/old/<stamp>-<reason>/
+# (one folder per run, with a "reason" note), never left loose in ~/.ssh.
 retire() {
-  local s
-  s="$(date +%Y%m%d-%H%M%S)"
-  if [[ -f "$1" ]]; then mv "$1" "$1.bak-$s"; fi
-  if [[ -f "$1.pub" ]]; then
-    mv "$1.pub" "$1.bak-$s.pub"
-    if [[ "$mac" == true ]]; then ssh-add -d "$1.bak-$s.pub" >/dev/null 2>&1 || true; fi
-    echo "old key kept as $1.bak-$s"
+  local f moved=false why="${2:-replaced}"
+  for f in "$1" "$1.pub"; do
+    [[ -f "$f" ]] || continue
+    if [[ -z "$old_event" ]]; then
+      old_event="$OLD_DIR/$(date +%Y%m%d-%H%M%S)-$(tr -c 'A-Za-z0-9@.+\n' - <<<"$why")"
+      mkdir -p "$old_event"
+      chmod 700 "$OLD_DIR" "$old_event"
+    fi
+    mv "$f" "$old_event/"
+    moved=true
+  done
+  [[ "$moved" == true ]] || return 0
+  echo "$why: ${1##*/}" >>"$old_event/reason"
+  if [[ "$mac" == true && -f "$old_event/${1##*/}.pub" ]]; then
+    ssh-add -d "$old_event/${1##*/}.pub" >/dev/null 2>&1 || true
   fi
+  echo "old key moved to ${old_event/#$HOME/~}/"
 }
 
 account_host() {
@@ -336,10 +350,11 @@ new_yubikey() {
 # new_path <key>: where to make it (<key> itself when nothing is there yet).
 new_path() { if [[ -e "$1" || -e "$1.pub" ]]; then echo "$1.new"; else echo "$1"; fi; }
 
-# install_new <made> <key>: retire <key> and move <made>[.pub] in (no-op when the same).
+# install_new <made> <key> <reason>: retire <key> and move <made>[.pub] in (no-op when
+# the same).
 install_new() {
   [[ "$1" != "$2" ]] || return 0
-  retire "$2"
+  retire "$2" "$3"
   if [[ -f "$1" ]]; then mv "$1" "$2"; fi
   if [[ -f "$1.pub" ]]; then mv "$1.pub" "$2.pub"; fi
 }
@@ -568,7 +583,7 @@ ensure_auth_key() {
         mkdir -p -m 700 "$HOME/.ssh"
         made="$(new_path "$key")"
         ssh-keygen -t ed25519 -C "${email:-$acct} ($(hostname))" -f "$made" || { discard_new "$made" "$key"; return 1; }
-        install_new "$made" "$key"
+        install_new "$made" "$key" "renew $acct auth"
       elif [[ "$mac" != true ]] && agent_has "$mp"; then
         echo "using the Mac key from the forwarded agent"
       elif [[ ! -f "$key" ]]; then
@@ -611,7 +626,7 @@ ensure_auth_key() {
             ask_pin
             new_yubikey "$made" "ssh:git-auth-$acct" "${email:-$acct} git-auth ($(hostname))" || { discard_new "$made" "$own"; return 1; }
           fi
-          install_new "$made" "$own"
+          install_new "$made" "$own" "$([[ "$new" == true ]] && echo renew || echo replace) $acct auth"
           post_add "$m" "$own"
         fi
       fi
@@ -692,7 +707,7 @@ retire_file_key() {
   f="$(file_key_path "$1")"
   [[ -f "$f" ]] || return 0
   if confirm "Move the old key file $(basename "$f") aside? (exportable; $2 works now)" no; then
-    retire "$f"
+    retire "$f" "$1 file key, now $2"
   fi
   return 0
 }
@@ -922,7 +937,7 @@ sign_account() {
     p="$pin"
     expiry_days "$acct" signDays "Signing" || return 1
     echo "New signing key for $acct ($method):"
-    echo "  a. key      $(made_text "$method")$([[ "$sign_new" == true ]] && echo "; old key kept as .bak-<date>")"
+    echo "  a. key      $(made_text "$method")$([[ "$sign_new" == true ]] && echo "; old key → ~/.ssh/old/")"
     echo "  b. test     sign + verify a test message (notification / touch / passphrase)"
     echo "  c. upload   $(key_page "$host") ($(page_hint "$host" signing "$kd"))"
     echo "-- a. key"
@@ -937,7 +952,7 @@ sign_account() {
       return 1
     fi
     ok "test signature verified"
-    install_new "$made" "$own"
+    install_new "$made" "$own" "$([[ "$sign_new" == true ]] && echo renew || echo replace) $acct signing"
     post_add "$method" "$own" || return 1
     echo "-- c. upload"
     offer_pub "$pub" "$host" "$(page_hint "$host" signing "$kd")"
@@ -1031,7 +1046,7 @@ renew_account() {
   if [[ "$what" != sign ]]; then
     n=$((n + 1))
     case "$am" in
-      key) echo "  $n. auth key     new $(basename "$(file_key_path "$acct")") (old → .bak-<date>) → page: $(page_hint "$host" auth "$ad")" ;;
+      key) echo "  $n. auth key     new $(basename "$(file_key_path "$acct")") (old → ~/.ssh/old/) → page: $(page_hint "$host" auth "$ad")" ;;
       *) echo "  $n. auth key     $(made_text "$am") → page: $(page_hint "$host" auth "$ad")" ;;
     esac
   fi
@@ -1236,6 +1251,10 @@ status_table() {
       suggest="$suggest"$'\n'"  re-sign: git rebase --exec 'git commit --amend --no-edit -S' $r_base"
     fi
   fi
+  loose_files
+  stale_mac_pubs
+  n="$(printf '%s' "$loose$stale" | grep -c . || true)"
+  ((n == 0)) || suggest="$suggest"$'\n'"  ssh: $n loose old key files → dot git ssh clean"
   [[ -z "$notes" ]] || printf 'Notes:%s\n' "$notes"
   [[ -z "$suggest" ]] || printf 'Suggested:%s\n' "$suggest"
   return 0
@@ -1328,6 +1347,219 @@ details() {
   echo "all accounts ok"
 }
 
+# --- ~/.ssh files -------------------------------------------------------------
+
+# Sets loose= to old key files lying in ~/.ssh (from before ~/.ssh/old/, or half-made),
+# one path per pair (the private half when both exist).
+loose_files() {
+  local f b
+  loose=""
+  for f in "$HOME"/.ssh/*; do
+    [[ -f "$f" ]] || continue
+    b="${f##*/}"
+    case "$b" in
+      *.bak-* | *.stray* | *.new | *.new.pub) ;;
+      *) continue ;;
+    esac
+    if [[ "$b" == *.pub && -f "${f%.pub}" ]]; then continue; fi
+    loose="$loose$f"$'\n'
+  done
+}
+
+# Sets stale= to Mac public keys in a VM's ~/.ssh/mac/ that neither the forwarded agent
+# nor Secretive holds any more (only with forwarding on: otherwise nothing can be told).
+stale_mac_pubs() {
+  local f rc=0
+  stale=""
+  [[ "$mac" != true && -n "${SSH_AUTH_SOCK:-}" ]] || return 0
+  ssh-add -l >/dev/null 2>&1 || rc=$?
+  [[ "$rc" != 2 ]] || return 0
+  for f in "$HOME"/.ssh/mac/*.pub; do
+    [[ -f "$f" ]] || continue
+    if agent_has "$f"; then continue; fi
+    if [[ -S "$SECRETIVE_SOCK" ]] && agent_has "$f" "$SECRETIVE_SOCK"; then continue; fi
+    stale="$stale$f"$'\n'
+  done
+}
+
+# Sets hwfiles= to "account path" lines: key files of hardware-only accounts that now use a
+# hardware auth key (offered for cleanup only after a fresh login proves the new key).
+hw_file_keys() {
+  local a f
+  hwfiles=""
+  for a in $(accounts_here); do
+    hardware_only "$a" || continue
+    [[ "$(auth_method "$a")" != key ]] || continue
+    f="$(file_key_path "$a")"
+    if [[ -f "$f" || -f "$f.pub" ]]; then hwfiles="$hwfiles$a $f"$'\n'; fi
+  done
+}
+
+old_folders() {
+  local d
+  for d in "$OLD_DIR"/*/; do
+    if [[ -d "$d" ]]; then echo "${d%/}"; fi
+  done
+}
+
+# What an old file is, from its name.
+old_what() {
+  case "${1##*/}" in
+    *.new | *.new.pub) echo "half-made key (cancelled renew)" ;;
+    *.stray*) echo "not made by dot git" ;;
+    git-auth-*) echo "replaced auth key" ;;
+    git-signing-*) echo "replaced signing key" ;;
+    id_*) echo "old auth key file" ;;
+    *) echo "old key" ;;
+  esac
+}
+
+pair_label() {
+  local b="${1##*/}"
+  if [[ "$b" != *.pub && -f "$1.pub" ]]; then b="$b (+.pub)"; fi
+  echo "$b"
+}
+
+# Fingerprint lines of the public keys among the given files / folders (before deleting).
+fingerprints() {
+  local x f
+  for x in "$@"; do
+    for f in "$x" "$x.pub" "$x"/*.pub; do
+      [[ "$f" == *.pub && -f "$f" ]] || continue
+      ssh-keygen -lf "$f" 2>/dev/null | awk '{print "  " $2 "  " $3}'
+    done
+  done | sort -u
+}
+
+ssh_list() {
+  local a am pub m sk d n
+  loose_files
+  stale_mac_pubs
+  hw_file_keys
+  echo "In use"
+  for a in $(accounts_here); do
+    am="$(auth_method "$a")"
+    pub="$(auth_pub "$a" "$am")"
+    printf '  %-11s auth     %-34s %s\n' "$a$(hardware_only "$a" && echo " [hw]")" "${pub##*/}" "$am$([[ -f "$pub" ]] && echo ", $(age_days "$pub") days")"
+    m="$(current_method "$a")"
+    if [[ "$m" != none ]]; then
+      sk="$(pub_of "$(signing_get "$a" user.signingkey)")"
+      printf '  %-11s signing  %-34s %s\n' "" "${sk##*/}" "$m$([[ -f "$sk" ]] && echo ", $(age_days "$sk") days")"
+    fi
+  done
+  if [[ -n "$(old_folders)" ]]; then
+    echo "Old (in ${OLD_DIR/#$HOME/~}/)"
+    for d in $(old_folders); do
+      n="$(find "$d" -type f ! -name reason | wc -l | tr -d ' ')"
+      printf '  %-44s %2s files  %3s days\n' "${d##*/}" "$n" "$(age_days "$d")"
+    done
+  fi
+  if [[ -n "$loose$hwfiles$stale" ]]; then
+    echo "Loose"
+    while IFS= read -r a; do
+      [[ -n "$a" ]] && printf '  %-44s %s\n' "$(pair_label "$a")" "$(old_what "$a")"
+    done <<<"$loose"
+    while read -r a d; do
+      [[ -n "$a" ]] && printf '  %-44s %s\n' "$(pair_label "$d")" "$a's old file key ($a now uses $(auth_method "$a"))"
+    done <<<"$hwfiles"
+    while IFS= read -r a; do
+      [[ -n "$a" ]] && printf '  %-44s %s\n' "mac/${a##*/}" "the Mac no longer has this key"
+    done <<<"$stale"
+  fi
+  return 0
+}
+
+# Moves loose files, proven old file keys and stale Mac copies into ~/.ssh/old/.
+ssh_tidy() {
+  local f a
+  while IFS= read -r f; do [[ -z "$f" ]] || retire "$f" tidy; done <<<"$loose"
+  while IFS= read -r f; do [[ -z "$f" ]] || retire "$f" tidy; done <<<"$stale"
+  while read -r a f; do
+    [[ -n "$a" ]] || continue
+    if ssh_ok "$a" "$(auth_pub "$a" "$(auth_method "$a")")"; then
+      retire "$f" "tidy $a file key"
+    else
+      warn "kept ${f##*/}: $a's $(auth_method "$a") key didn't log in (dot git setup $a)"
+    fi
+  done <<<"$hwfiles"
+  [[ -n "$old_event" ]] && ok "moved to ${old_event/#$HOME/~}/" || ok "nothing loose"
+}
+
+# Deletes the given paths (old folders under ~/.ssh/old/, or loose key pairs) after a
+# [y/N]; prints their fingerprints first, to remove them on the servers too.
+ssh_delete() {
+  local x prints a
+  [[ $# -gt 0 ]] || { echo "nothing to delete"; return 0; }
+  echo "Delete:"
+  for x in "$@"; do echo "  ${x/#$HOME/~}"; done
+  confirm "Delete these for good?" no || return 1
+  prints="$(fingerprints "$@")"
+  for x in "$@"; do
+    if [[ -d "$x" && "$x" == "$OLD_DIR"/?* ]]; then
+      rm -rf -- "$x"
+    elif [[ -f "$x" || -f "$x.pub" ]]; then
+      rm -f -- "$x" "$x.pub"
+    fi
+  done
+  ok "deleted"
+  if [[ -n "$prints" ]]; then
+    echo "Also remove these keys where they were added (dot git can't):"
+    echo "$prints"
+    for a in $(accounts_here); do echo "  $(key_page "$(account_host "$a")")"; done | sort -u
+    [[ "$mac" != true ]] || echo "  Secretive: secrets with these fingerprints"
+  fi
+}
+
+ssh_clean() {
+  local ans days d i list="" sel=""
+  ssh_list
+  echo
+  echo "  1) tidy      move the loose files into ${OLD_DIR/#$HOME/~}/<now>-tidy/ (nothing deleted)"
+  echo "  2) delete    old folders older than … days"
+  echo "  3) pick      choose folders / files by number"
+  echo "  q) quit"
+  while :; do
+    read -r -p "? Choose 1-3: " ans </dev/tty || return 0
+    case "$ans" in
+      1) ssh_tidy; return ;;
+      2)
+        read -r -p "? Older than how many days (Enter = 30): " days </dev/tty || return 0
+        [[ "$days" =~ ^[0-9]+$ ]] || days=30
+        set --
+        for d in $(old_folders); do
+          if (($(age_days "$d") >= days)); then set -- "$@" "$d"; fi
+        done
+        ssh_delete "$@"
+        return
+        ;;
+      3)
+        i=0
+        for d in $(old_folders); do i=$((i + 1)); list="$list$d"$'\n'; printf '  %2d  %s/\n' "$i" "${d##*/}"; done
+        while IFS= read -r d; do
+          [[ -n "$d" ]] || continue
+          i=$((i + 1)); list="$list$d"$'\n'; printf '  %2d  %s\n' "$i" "$(pair_label "$d")"
+        done <<<"$loose$stale"
+        [[ "$i" -gt 0 ]] || { echo "nothing old"; return 0; }
+        read -r -p "? Numbers (e.g. 1 3): " ans </dev/tty || return 0
+        set --
+        for d in $ans; do
+          [[ "$d" =~ ^[0-9]+$ ]] && ((d >= 1 && d <= i)) && set -- "$@" "$(sed -n "${d}p" <<<"$list")"
+        done
+        [[ $# -gt 0 ]] || return 0
+        read -r -p "? 1) move to ${OLD_DIR/#$HOME/~}/  2) delete: " ans </dev/tty || return 0
+        if [[ "$ans" == 2 ]]; then
+          ssh_delete "$@"
+        else
+          for d in "$@"; do [[ "$d" == "$OLD_DIR"/* ]] || retire "$d" picked; done
+          ok "done"
+        fi
+        return
+        ;;
+      q) return 0 ;;
+    esac
+  done
+}
+
 close_connections() {
   local a
   for a in $(reuse_accounts); do close_master "$a"; done
@@ -1335,8 +1567,10 @@ close_connections() {
 }
 
 menu() {
-  local a reuse max=4
+  local a reuse files max=4
   reuse="$(reuse_accounts)"
+  loose_files
+  files="$loose$(old_folders)"
   status_table
   echo
   echo "  1) set up an account   auth key, upload, test; then signing"
@@ -1347,6 +1581,10 @@ menu() {
     echo "  5) close connections   end reused ssh connections (next push asks again)"
     max=5
   fi
+  if [[ -n "$files" ]]; then
+    echo "  6) ssh files           old and loose keys in ~/.ssh: list, tidy, delete"
+    max=6
+  fi
   echo "  q) quit"
   while :; do
     read -r -p "? Choose 1-$max: " a </dev/tty || return 0
@@ -1355,7 +1593,8 @@ menu() {
       2) pick_account || return 0; method=""; sign_account "$acct"; return ;;
       3) pick_account || return 0; renew_account "$acct"; return ;;
       4) details; return ;;
-      5) [[ "$max" == 5 ]] || continue; close_connections; return ;;
+      5) [[ -n "$reuse" ]] || continue; close_connections; return ;;
+      6) [[ -n "$files" ]] || continue; ssh_clean; return ;;
       q) return 0 ;;
     esac
   done
@@ -1366,6 +1605,13 @@ menu() {
 set -- $args
 case "$cmd" in
   menu) menu ;;
+  ssh)
+    case "${1:-}" in
+      "") ssh_list ;;
+      clean) ssh_clean ;;
+      *) echo "usage: dot git ssh [clean]" >&2; exit 2 ;;
+    esac
+    ;;
   status) details "${*:-}" ;;
   setup)
     if [[ $# -eq 0 ]]; then pick_account || exit 0; set -- "$acct"; fi

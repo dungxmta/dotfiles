@@ -38,6 +38,7 @@ dot outdated          # what has a newer version
 dot upgrade           # pick what to upgrade (or: dot upgrade fzf go, --all)
 dot sync              # reconcile tools and modules
 dot git               # git accounts: status, then a menu (keys, signing, renew)
+dot git ssh clean     # old keys (kept in ~/.ssh/old/): tidy, delete
 ./install.sh          # change profile, tools or options
 ```
 

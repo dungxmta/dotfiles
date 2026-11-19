@@ -7,7 +7,14 @@
 # --- ssh: keys are made per machine (dot git), never in git ---
 .ssh/id_*
 .ssh/git-signing-*
+.ssh/git-auth-*
 .ssh/allowed_signers
+.ssh/old/
+.ssh/old/**
+.ssh/dotgit/
+.ssh/dotgit/**
+.ssh/cm/
+.ssh/cm/**
 .config/git/signing-*
 .ssh/known_hosts
 .ssh/known_hosts.old
