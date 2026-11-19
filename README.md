@@ -69,12 +69,32 @@ only local files (`~/.config/git/signing-<account>`, `~/.ssh/git-signing-*`,
 started with `vm up --agent`, `secretive` and `yubikey` use the Mac's keys.
 Details: `dot git --help`.
 
-Leak guard (blocks commits containing the local work host, email or domain,
-or patterns from `~/.config/dotfiles/leak-patterns`), once per clone:
+### Leak guard
+
+This repo is public. `.githooks/pre-commit` refuses a commit whose added
+lines contain the work host, work email or its domain (read from the local
+chezmoi data) or a pattern from `~/.config/dotfiles/leak-patterns`. Turn it
+on once per clone:
 
 ```sh
 git config core.hooksPath .githooks
 ```
+
+`leak-patterns` is optional and stays outside the repo, so the list itself is
+never published: one extended regex per line, case-insensitive, `#` comments.
+
+```sh
+mkdir -p ~/.config/dotfiles
+cat > ~/.config/dotfiles/leak-patterns <<'EOF'
+# org names
+acme|example-corp
+# private repos
+myuser/private-repo
+EOF
+```
+
+Another path: `DOTFILES_LEAK_PATTERNS=/path/to/file`. A false positive: fix
+the pattern, or `git commit --no-verify`.
 
 AI agent config and skills live in a separate repo,
 [dungxmta/agents](https://github.com/dungxmta/agents); the installer asks
