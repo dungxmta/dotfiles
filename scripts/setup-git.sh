@@ -84,7 +84,7 @@ renew_what=""
 if [[ "$new" == true && "$cmd" == setup ]]; then
   cmd=renew renew_what=auth
 fi
-sign_new=false test_only=false planned=false
+sign_new=false test_only=false planned=false login="" login_key=""
 [[ "$cmd" == status ]] && test_only=true
 
 ok() { printf 'ok  %s\n' "$*"; }
@@ -128,11 +128,29 @@ age_days() {
   echo $((($(date +%s) - m) / 86400))
 }
 
+# Fresh login as git@$1: -S none never goes through a reused connection (ControlPersist),
+# which would say nothing about the key. Sets login=ok|refused and login_key= to the
+# identity the server accepted (path without .pub; empty when ssh didn't say).
 # Exit status of ssh -T differs per provider (GitHub: 1); match the greeting instead.
-ssh_ok() {
+login_check() {
   local out
-  out="$(ssh -T -o BatchMode=yes -o ConnectTimeout=10 "git@$1" 2>&1 </dev/null || true)"
-  grep -qE 'successfully authenticated|Welcome to GitLab' <<<"$out"
+  login=refused login_key=""
+  out="$(ssh -S none -v -T -o BatchMode=yes -o ConnectTimeout=10 "git@$1" 2>&1 </dev/null || true)"
+  grep -qE 'successfully authenticated|Welcome to GitLab' <<<"$out" || return 0
+  login=ok
+  login_key="$(sed -n 's/^debug1: Server accepts key: \([^ ]*\).*/\1/p' <<<"$out" | tail -1)"
+  login_key="${login_key%.pub}"
+}
+
+# ssh_ok <account> [pub]: logs in, and (given pub) with that key, not an older fallback
+# key still on the server. Sets login=other when another key got in.
+ssh_ok() {
+  login_check "$1"
+  [[ "$login" == ok ]] || return 1
+  if [[ -n "${2:-}" && -n "$login_key" && "$login_key" != "${2%.pub}" ]]; then
+    login=other
+    return 1
+  fi
 }
 
 # True if the agent at $2 (default: SSH_AUTH_SOCK) holds the key whose public half is $1.
@@ -633,26 +651,36 @@ auth_account() {
   ensure_auth_key "$name" "$am" || return 1
 
   [[ "$test_only" == true || "$planned" == true ]] || step 2 3 "server: ssh -T git@$name"
-  if [[ "$test_only" == true && "$(state_get "$name" touch)" == true ]] && ! master_open "$name"; then
-    echo "not checked: ssh git@$name prompts (Touch ID / touch); dot git setup $name tests it"
+  if [[ "$test_only" == true && "$(state_get "$name" touch)" == true ]]; then
+    echo "not checked: ssh git@$name prompts (Touch ID / touch); test: ssh -S none -v -T git@$name"
     return 0
   fi
-  if ssh_ok "$name"; then
-    ok "ssh git@$name ($am$([[ -f "$pub" ]] && echo ", $(age_days "$pub") days old"))"
+  if ssh_ok "$name" "$pub"; then
+    ok "ssh git@$name with $(basename "$pub")$([[ -f "$pub" ]] && echo ", $(age_days "$pub") days old")"
     retire_file_key "$name" "$am"
     return 0
   fi
-  echo "failed: ssh git@$name (key not on the server?)"
+  login_failed "$name" "$pub"
   [[ "$test_only" != true && -f "$pub" ]] || return 1
 
   offer_pub "$pub" "$host" "$(page_hint "$host" auth "$(state_get "$name" authDays)")"
   read -r -p "Press Enter after adding the key to retest... " _ </dev/tty || return 1
-  if ssh_ok "$name"; then
-    ok "ssh git@$name"
+  if ssh_ok "$name" "$pub"; then
+    ok "ssh git@$name with $(basename "$pub")"
     retire_file_key "$name" "$am"
   else
-    echo "still failing: ssh -T git@$name"
+    login_failed "$name" "$pub"
+    echo "    check: ssh -S none -v -T git@$name 2>&1 | grep -E 'Offering|Server accepts'"
     return 1
+  fi
+}
+
+# Why ssh_ok failed for account $1 (expected key $2).
+login_failed() {
+  if [[ "$login" == other ]]; then
+    warn "ssh git@$1 logged in with $(basename "$login_key"), not $(basename "$2"): the new key isn't on the server yet"
+  else
+    echo "failed: ssh git@$1 with $(basename "$2") (not on the server as an authentication key?)"
   fi
 }
 
@@ -1178,11 +1206,14 @@ status_table() {
         suggest="$suggest"$'\n'"  renew $a: signing key ($cell)"
       fi
     fi
-    if [[ "$(state_get "$a" touch)" == true ]] && ! master_open "$a"; then
-      sv="not checked (prompts)"
-    elif ssh_ok "$a"; then
+    if [[ "$(state_get "$a" touch)" == true ]]; then
+      # a fresh login would prompt; the reused connection may still be an older key's
+      if master_open "$a"; then sv="reused (not rechecked)"; else sv="not checked (prompts)"; fi
+    elif ssh_ok "$a" "$(auth_pub "$a" "$(auth_method "$a")")"; then
       sv=ok
-      master_open "$a" && sv="ok, reused"
+    elif [[ "$login" == other ]]; then
+      sv="!! old key $(basename "$login_key")"
+      suggest="$suggest"$'\n'"  set up $a: its $(auth_method "$a") key isn't on the server yet"
     else
       sv="!! refused"
       [[ "$ac" == "!! "* ]] || suggest="$suggest"$'\n'"  set up $a (key not on the server?)"
