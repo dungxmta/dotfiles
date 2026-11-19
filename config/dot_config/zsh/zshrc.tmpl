@@ -94,9 +94,7 @@ zstyle ':omz:update' frequency 7
 plugins=(git zsh-autosuggestions zsh-syntax-highlighting zsh-vi-mode)
 
 fpath+=${ZSH_CUSTOM:-${ZSH:-~/.oh-my-zsh}/custom}/plugins/zsh-completions/src
-{{- if $mac }}
-fpath=("$HOME/.config/zsh/completions" $fpath) # _vm (lima-vm.zsh); before compinit in oh-my-zsh
-{{- end }}
+fpath=("$HOME/.config/zsh/completions" $fpath) # _dot, _vm (Mac); before compinit in oh-my-zsh
 {{- if eq .profile "mac-work" }}
 # /opt/homebrew belongs to the IT admin account, so compaudit flags its completions as
 # insecure and the counts in .zcompdump never match: compinit rebuilt it every shell (~0.6s).
@@ -246,7 +244,7 @@ source "$HOME/.config/zsh/dot.zsh"
 source "$HOME/.config/shell/common/aliases.sh"
 # reload config, regenerating everything in the cache above (an alias, not a function,
 # so zshrc is sourced at top level and its typesets stay global)
-alias reload-zsh='_zsh_cache_refresh=1; source ~/.zshrc; unset _zsh_cache_refresh'
+alias reload-zsh='_zsh_cache_refresh=1; source ~/.zshrc; unset _zsh_cache_refresh; (( $+functions[_dot_index] )) && _dot_index -q'
 export XDG_CONFIG_HOME="$HOME/.config"
 
 ## k8s (completion regenerated when the kubectl binary changes)

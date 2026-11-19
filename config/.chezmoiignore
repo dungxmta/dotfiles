@@ -72,8 +72,7 @@
 .config/herdr/plugins/config/cloudmanic.herdr-plus/quick-actions/mac-*.toml
 .config/herdr/plugins/config/cloudmanic.herdr-plus/quick-actions/script-*.toml
 .config/zsh/lima-vm.zsh
-.config/zsh/completions/
-.config/zsh/completions/**
+.config/zsh/completions/_vm
 {{- end }}
 
 {{- if eq .profile "devpod" }}
@@ -88,6 +87,7 @@
 # --- deselected tools / variants ---
 {{- if not .dotEnabled }}
 .config/zsh/dot.zsh
+.config/zsh/completions/_dot
 {{- end }}
 {{- if not (has "git" $t) }}
 .gitconfig

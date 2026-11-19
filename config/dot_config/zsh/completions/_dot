@@ -1,0 +1,101 @@
+#compdef dot
+# Completion for `dot` (../dot.zsh) and `dot git` (scripts/setup-git.sh). Commands and the
+# dot git words are listed here (keep them in sync with `dot help` and setup-git.sh); git
+# accounts, managed files and upgrade names come from the index `dot index` writes, so Tab
+# never runs a command.
+
+# Loads the index into _dot_accounts / _dot_managed / _dot_upgrade; false when missing.
+_dot_load_index() {
+  local f=${_DOT_INDEX:-${XDG_CACHE_HOME:-$HOME/.cache}/zsh/dot-index}
+  [[ -r $f ]] || return 1
+  source $f
+}
+
+_dot_accounts_or_hint() {
+  if (( $#_dot_accounts )); then
+    _wanted accounts expl 'git account' compadd -a _dot_accounts
+  else
+    _message 'git account (run dot index to list them)'
+  fi
+}
+
+_dot_git() {
+  local -a gitcmds methods
+  gitcmds=(
+    'setup:auth key, upload, test; then signing'
+    'renew:new auth and/or signing key'
+    'sign:signing method for an account'
+    'ssh:keys in use and old keys (clean: tidy / delete)'
+    'status:full read-only check'
+  )
+  methods=(
+    'secretive:1 · Secure Enclave key in Secretive (VM: the Mac'\''s)'
+    'yubikey:2 · YubiKey, touch per commit'
+    'key:3 · plain key file (exportable)'
+    'none:4 · stop signing'
+  )
+  if (( CURRENT == 2 )); then
+    _describe -t git-commands 'dot git command' gitcmds
+    return
+  fi
+  case $words[2] in
+    setup) _dot_accounts_or_hint ;;
+    renew) (( CURRENT == 3 )) && _dot_accounts_or_hint ;;
+    sign)
+      case $CURRENT in
+        3) _dot_accounts_or_hint ;;
+        4) _describe -t methods 'signing method' methods ;;
+      esac
+      ;;
+    ssh) (( CURRENT == 3 )) && _values 'ssh files' 'clean[tidy loose keys / delete old folders]' ;;
+  esac
+}
+
+_dot() {
+  local curcontext=$curcontext state line expl ret=1
+  local -a cmds _dot_accounts _dot_managed _dot_upgrade
+  cmds=(
+    'edit:edit the chezmoi source of a managed file'
+    'diff:preview changes (chezmoi diff)'
+    'apply:apply changes (chezmoi apply)'
+    'update:pull, show the diff, apply after a yes'
+    'status:git status of the repo + chezmoi status'
+    'sync:reconcile profile, tools and sparse checkout'
+    'tools:choose tools interactively'
+    'outdated:list newer versions'
+    'upgrade:pick what to upgrade (or NAME...)'
+    'push:push already-committed changes'
+    'repo:cd into the dotfiles repo'
+    'git:git accounts: status + menu, setup, renew, sign, ssh'
+    'index:rebuild this completion index'
+    'help:show usage'
+  )
+  _arguments -C '1: :->cmd' '*:: :->args' && ret=0
+  case $state in
+    cmd) _describe -t commands 'dot command' cmds && ret=0 ;;
+    args)
+      _dot_load_index
+      case $words[1] in
+        edit)
+          if (( $#_dot_managed )); then
+            _wanted files expl 'managed file' compadd -P '~/' -a _dot_managed && ret=0
+          else
+            _files && ret=0
+          fi
+          ;;
+        sync) (( CURRENT == 2 )) && _values 'tool' git herdr nvim tmux && ret=0 ;;
+        upgrade)
+          if (( $#_dot_upgrade )); then
+            _wanted names expl 'upgrade name' compadd -a _dot_upgrade && ret=0
+          else
+            _message 'name (run dot index to list them)'
+          fi
+          ;;
+        git) _dot_git && ret=0 ;;
+      esac
+      ;;
+  esac
+  return ret
+}
+
+_dot "$@"
