@@ -16,7 +16,8 @@
 #   3. Mac: ssh-add --apple-use-keychain <key>
 #   4. ssh -T git@<alias>; on failure copy the public key (Mac: pbcopy + open the
 #      key page; Linux: OSC 52 + print it), wait for you to add it, retest
-#   5. asks "Sign commits for <account>?" (Enter keeps the current method)
+#   5. signing: numbered menu, Enter keeps the current method
+# Before doing anything it prints the plan (steps 1-3); --new asks to continue.
 #
 # Signing, local to this machine (never in the dotfiles):
 #   ~/.config/git/signing-<account>   included by gitconfig-<account>; missing = unsigned
@@ -168,10 +169,16 @@ offer_pub() {
   if [[ "$mac" == true ]]; then open "$(key_page "$2")"; fi
 }
 
+# confirm <question> [no]: Enter = yes, or no when $2 is "no". End of input is always no.
 confirm() {
   local answer
-  read -r -p "$1 [Y/n] " answer </dev/tty
-  [[ -z "$answer" || "$answer" == [yY]* ]]
+  if [[ "${2:-}" == no ]]; then
+    read -r -p "$1 [y/N] " answer </dev/tty || return 1
+    [[ "$answer" == [yY]* ]]
+  else
+    read -r -p "$1 [Y/n] " answer </dev/tty || return 1
+    [[ -z "$answer" || "$answer" == [yY]* ]]
+  fi
 }
 
 # Move a key pair aside: <key> -> <key>.bak-<stamp>, <key>.pub -> <key>.bak-<stamp>.pub.
@@ -268,27 +275,35 @@ method_label() {
   esac
 }
 
-# Sets method= from a menu for account $1 (host $2). Enter keeps the current one.
+# Sets method= from a numbered menu for account $1 (host $2). Enter keeps the current one;
+# unavailable methods keep their number but can't be picked.
 choose_method() {
-  local cur m answer avail=""
+  local cur m answer n=0 avail=""
   cur="$(current_method "$1")"
-  echo "Sign commits for $1?"
+  echo "Sign commits for $1? (now: $cur)"
   for m in $METHODS; do
+    n=$((n + 1))
     if method_ok "$1" "$m"; then
-      printf '  %-11s %s\n' "$m" "$(method_label "$1" "$m" "$2")"
+      printf '  %d) %-10s %s\n' "$n" "$m" "$(method_label "$1" "$m" "$2")"
       avail="$avail $m"
     else
-      printf '  %-11s needs: %s\n' "($m)" "$why"
+      printf '  %d) %-10s unavailable, needs %s\n' "$n" "$m" "$why"
     fi
   done
   while :; do
-    read -r -p "? Method (Enter = keep $cur): " answer </dev/tty
-    answer="${answer:-$cur}"
-    if [[ " $avail " == *" $answer "* || "$answer" == "$cur" ]]; then
+    read -r -p "? Choose 1-$n (Enter = keep $cur): " answer </dev/tty
+    if [[ -z "$answer" ]]; then
+      method="$cur"
+      return 0
+    fi
+    if [[ "$answer" =~ ^[0-9]+$ ]] && ((answer >= 1 && answer <= n)); then
+      answer="$(awk -v i="$answer" '{print $i}' <<<"$METHODS")"
+    fi
+    if [[ " $avail " == *" $answer "* ]]; then
       method="$answer"
       return 0
     fi
-    echo "choose one of:$avail"
+    echo "  not available here; pick another number"
   done
 }
 
@@ -391,7 +406,7 @@ new_key() {
 # dot git sign <account> [method]: switch to an existing key, or create + upload one;
 # then write signing-<account>.
 sign_account() {
-  local acct=$1 host email cur own key pub kd p create=false
+  local acct=$1 host email cur own key pub kd p made create=false
   host="$(account_host "$acct")" || { echo "error: no 'Host $acct' in ~/.ssh/config (run chezmoi apply)" >&2; return 1; }
   email="$(account_email "$acct")"
   cur="$(current_method "$acct")"
@@ -426,14 +441,27 @@ sign_account() {
   kd="$days" p="$pin"
   if [[ "$create" == true ]]; then
     if [[ -z "$kd" ]]; then
-      read -r -p "? Key expiry on the server, days (Enter = none): " kd </dev/tty
+      read -r -p "? Key expiry on the server, days (Enter = none): " kd </dev/tty || return 1
       [[ -z "$kd" || "$kd" =~ ^[0-9]+$ ]] || { echo "error: not a number: $kd" >&2; return 1; }
     fi
+    case "$method" in
+      secretive) made="in the Secretive app: + new secret, Copy Public Key (read from the clipboard)" ;;
+      yubikey) made="ssh-keygen ed25519-sk on the YubiKey (touch$([[ "$pin" == true ]] && echo " + PIN"))" ;;
+      key) made="ssh-keygen ed25519 (passphrase)" ;;
+    esac
+    [[ "$sign_new" == true ]] && made="$made; old key kept as .bak-<date>"
+    echo "New $method signing key for $acct:"
+    echo "  a. key      $made"
+    echo "  b. test     sign + verify a test message (notification / touch / passphrase)"
+    echo "  c. upload   $(key_page "$host") ($(page_hint "$host" signing "$kd"))"
+    echo "-- a. key"
     [[ "$sign_new" == true ]] && retire "$own"
     new_key "$acct" "$method" "$own" "$email" || return 1
     allow_signer "$email" "$pub"
+    echo "-- b. test"
     test_sign "$email" "$key" "$method" || { echo "error: test signature failed; signing-$acct unchanged" >&2; return 1; }
     ok "test signature verified"
+    echo "-- c. upload"
     offer_pub "$pub" "$host" "$(page_hint "$host" signing "$kd")"
     read -r -p "Press Enter after adding it... " _ </dev/tty
   else
@@ -530,8 +558,10 @@ test_repo() {
 
 # --- auth ------------------------------------------------------------------
 
+step() { printf '\n[%s/3] %s\n' "$1" "$2"; }
+
 auth_account() {
-  local name=$1 host key email
+  local name=$1 host key email action
   host="$(ssh_opt "$name" hostname)"
   key="$(ssh_opt "$name" identityfile)"
   email="$(account_email "$name")"
@@ -541,6 +571,27 @@ auth_account() {
   if [[ "$host" == "$name" ]]; then
     echo "error: no 'Host $name' in ~/.ssh/config (run chezmoi apply)" >&2
     return 1
+  fi
+
+  if [[ "$test_only" != true ]]; then
+    if [[ "$new" == true ]]; then
+      action="new key ($(basename "$key").bak-<date> keeps the old pair)"
+    elif [[ "$mac" != true ]] && agent_has "$HOME/.ssh/mac/$(basename "$key").pub"; then
+      action="the Mac's key through the forwarded agent"
+    elif [[ -f "$key" ]]; then
+      action="existing $(basename "$key")$([[ "$mac" == true ]] && echo ", added to the agent")"
+    else
+      action="missing: generate one (asks)"
+    fi
+    echo "Plan:"
+    echo "  1. auth key   $action"
+    echo "  2. server     ssh -T git@$name; refused → copy key, open $(key_page "$host")"
+    echo "                ($(page_hint "$host" auth)), wait, retest"
+    echo "  3. signing    choose 1-4 (now: $(current_method "$name"))"
+    if [[ "$new" == true ]] && ! confirm "Continue? (moves the current key aside)" no; then
+      return 1
+    fi
+    step 1 "auth key"
   fi
 
   [[ "$new" == true ]] && retire "$key"
@@ -564,6 +615,7 @@ auth_account() {
     ssh-add --apple-use-keychain "$key" || return 1
   fi
 
+  [[ "$test_only" == true ]] || step 2 "server: ssh -T git@$name"
   if ssh_ok "$name"; then
     ok "ssh git@$name$([[ -f "$key.pub" ]] && echo " (key $(age_days "$key.pub") days old)")"
     return 0
@@ -597,6 +649,7 @@ for name in $accounts; do
     test_signing "$name" || failed="$failed $name"
   else
     method=""
+    step 3 "signing"
     sign_account "$name" || failed="$failed $name"
   fi
 done
