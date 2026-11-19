@@ -64,9 +64,8 @@ usage: dot <command>
   upgrade --all    upgrade everything outdated
   push         push already-committed changes (never stages or commits)
   repo         cd into the dotfiles repo
-  git [ACCT...] SSH key per git account: make, upload, test; then sign? (--new renews)
-  git sign ACCT [METHOD]  commit signing: secretive | yubikey | key | none
-  git --test   read-only: ssh, signing keys, this repo's email and signed commits
+  git          git accounts: status, then a menu (set up, signing, renew)
+  git status   read-only check: ssh, signing keys, this repo's commits
 EOF
       ;;
     *) print -u2 "dot: unknown command: $cmd (dot help)"; return 2 ;;

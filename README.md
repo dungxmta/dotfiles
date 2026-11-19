@@ -37,7 +37,7 @@ dot edit ~/.zshrc     # edit a managed file
 dot outdated          # what has a newer version
 dot upgrade           # pick what to upgrade (or: dot upgrade fzf go, --all)
 dot sync              # reconcile tools and modules
-dot git               # SSH key + optional commit signing per git account
+dot git               # git accounts: status, then a menu (keys, signing, renew)
 ./install.sh          # change profile, tools or options
 ```
 
@@ -52,18 +52,18 @@ new machine
  ├─1─ git clone https://github.com/dungxmta/dotfiles ~/dotfiles   # https: no key needed
  │    ~/dotfiles/install.sh                 # profile, work host/email (kept local)
  │
- ├─2─ dot git github                        # auth key → browser → ssh -T; sign? (optional)
+ ├─2─ dot git setup github                  # auth key → browser → ssh -T; sign? (optional)
  │
  ├─3─ git clone github:dungxmta/<private>   # ssh, key from step 2
  │
- └─4─ dot git work                          # auth key; sign? secretive | yubikey | key | none
-      dot git --test                        # read-only check
+ └─4─ dot git setup work                    # auth key; sign? 1 secretive 2 yubikey 3 key 4 none
+      dot git                               # status of every account + menu
 ```
 
 Step 3 stays ssh: https for a private repo needs a token, and the gitconfig
 deliberately doesn't rewrite `https://github.com/`, so step 1 works keyless.
 
-`dot git sign <account> [method]` switches or renews signing later; it writes
+`dot git` (menu) or `dot git sign|renew <account>` switches or renews later; it writes
 only local files (`~/.config/git/signing-<account>`, `~/.ssh/git-signing-*`,
 `~/.ssh/allowed_signers`), so no `chezmoi apply` is needed. In a Lima VM
 started with `vm up --agent`, `secretive` and `yubikey` use the Mac's keys.
