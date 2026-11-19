@@ -450,14 +450,14 @@ _limavm_clone() {
   fi
 }
 
-# _limavm_push_keys NAME — copy the Mac's ~/.ssh/id_ed25519_{github,work}.pub and signing
-# keys ~/.ssh/git-signing-*.pub into the VM's ~/.ssh/mac/. ssh there uses IdentitiesOnly, so
+# _limavm_push_keys NAME — copy the Mac's ~/.ssh/id_ed25519_{github,work}.pub and dot git's
+# hardware keys ~/.ssh/git-{auth,signing}-*.pub into the VM's ~/.ssh/mac/. ssh there uses IdentitiesOnly, so
 # it offers a forwarded key only when it finds the key's .pub; `dot git sign` there signs
 # with the Mac's keys through them. Public halves only; the private keys stay on the Mac.
 _limavm_push_keys() {
   local key base sent=
   local -a keys
-  keys=($HOME/.ssh/id_ed25519_{github,work}.pub(N) $HOME/.ssh/git-signing-*.pub(N))
+  keys=($HOME/.ssh/id_ed25519_{github,work}.pub(N) $HOME/.ssh/git-{auth,signing}-*.pub(N))
   keys=(${keys:#*.bak-*})
   for key in $keys; do
     base=${key:t}
@@ -465,7 +465,7 @@ _limavm_push_keys() {
       "umask 077; mkdir -p ~/.ssh/mac && cat > ~/.ssh/mac/$base" <"$key" || return
     sent+=" ${base%.pub}"
   done
-  print -u2 -r -- "$1: Mac public keys sent:${sent:- none (no ~/.ssh/id_ed25519_{github,work}.pub or git-signing-*.pub)}"
+  print -u2 -r -- "$1: Mac public keys sent:${sent:- none (no ~/.ssh/id_ed25519_{github,work}.pub or git-{auth,signing}-*.pub)}"
 }
 
 # vm agent [NAME] [on|off] — the Mac's SSH keys in a running VM through agent forwarding, for

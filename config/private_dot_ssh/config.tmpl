@@ -4,13 +4,15 @@
 Include ~/.lima/*/ssh.config
 Include ~/.colima/ssh_config
 {{- else -}}
-# Two IdentityFiles per account; missing files are skipped:
+# Per account, ~/.ssh/dotgit/<alias>.conf (dot git; hardware auth key, connection reuse)
+# comes first when it exists. Two IdentityFiles per account; missing files are skipped:
 #   ~/.ssh/id_ed25519_<alias>        key for this machine (scripts/setup-git.sh)
 #   ~/.ssh/mac/id_ed25519_<alias>    Mac key from a forwarded agent: no private
 #                                    file here, so ssh asks the agent for <path>.pub
 {{- end }}
 
 Host github github.com
+    Include ~/.ssh/dotgit/github*.conf
     HostName github.com
     User git
     IdentityFile ~/.ssh/id_ed25519_github
@@ -24,6 +26,7 @@ Host github github.com
     UseKeychain yes
 
 Host gitlab gitlab.com
+    Include ~/.ssh/dotgit/gitlab*.conf
     HostName gitlab.com
     User git
     IdentityFile ~/.ssh/id_ed25519_gitlab
@@ -37,6 +40,7 @@ Host gitlab gitlab.com
 
 # work account: [data.work] in the local chezmoi config (never in git)
 Host work {{ .work.host }}{{ range (get .work "sshAliases" | default list) }} {{ . }}{{ end }}
+    Include ~/.ssh/dotgit/work*.conf
     HostName {{ .work.host }}
     User git
     IdentityFile {{ get .work "identityFile" | default "~/.ssh/id_ed25519_work" }}

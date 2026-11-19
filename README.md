@@ -45,6 +45,8 @@ dot git               # git accounts: status, then a menu (keys, signing, renew)
 
 Keys are made per machine and per account, never copied or committed; you
 upload each public key in the browser. Signing is optional per account.
+Per account you can require hardware keys only (Secretive on the Mac or a
+YubiKey; nothing exportable), for authentication and signing alike.
 
 ```
 new machine
@@ -56,7 +58,7 @@ new machine
  │
  ├─3─ git clone github:dungxmta/<private>   # ssh, key from step 2
  │
- └─4─ dot git setup work                    # auth key; sign? 1 secretive 2 yubikey 3 key 4 none
+ └─4─ dot git setup work                    # hardware only? · auth + signing: 1 secretive 2 yubikey 3 key
       dot git                               # status of every account + menu
 ```
 

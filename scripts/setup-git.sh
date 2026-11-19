@@ -3,28 +3,31 @@
 #
 # Usage: dot git                      status of every account, then a menu
 #        dot git status               full read-only check (keys, signing, this repo)
-#        dot git setup [account...]   auth key: make, upload, test; then signing
+#        dot git setup [account...]   auth key: method, make, upload, test; then signing
 #        dot git renew [account]      new key: 1) auth  2) signing  3) both
 #        dot git sign [account] [1-4|secretive|yubikey|key|none]
 #   account  github | gitlab | work (Linux: github work); omitted = asked
-#   Every choice is a numbered menu. Key expiry days are asked once per account.
+#   Every choice is a numbered menu. Asked once per account and remembered: hardware-only
+#   (Secretive / YubiKey keys only, never exportable files) and key expiry days.
 #
-# Auth (setup), per account; it prints the plan first:
-#   1. auth key: Linux uses the Mac key from a forwarded agent (~/.ssh/mac/<key>.pub),
-#      else this machine's key (missing: generate; Mac: ssh-add --apple-use-keychain)
-#   2. server: ssh -T git@<alias>; refused -> copy the public key (Mac: pbcopy + open the
-#      key page; Linux: OSC 52 + print it), wait for you to add it, retest
-#   3. signing: numbered menu, Enter keeps the current method
+# Methods, for the auth key and the signing key alike:
+#   secretive  Secure Enclave key in the Secretive app; only the .pub is on disk
+#   yubikey    ed25519-sk: a handle file here + the YubiKey
+#   key        ed25519 file with a passphrase (exportable; not on hardware-only accounts)
+# A hardware auth key goes into ~/.ssh/dotgit/<account>.conf (IdentityFile, IdentityAgent,
+# and ControlMaster/ControlPersist when each use prompts), included by the account's Host
+# block in ~/.ssh/config. No file = the key file from ~/.ssh/config.
 #
-# Signing, local to this machine (never in the dotfiles):
-#   ~/.config/git/signing-<account>   included by gitconfig-<account>; missing = unsigned
-#   ~/.ssh/git-signing-<account>-<method>[.pub]   one key per account per method
+# Setup prints the plan first: 1 auth key, 2 server (ssh -T; refused -> copy the public key,
+# open the key page, wait, retest), 3 signing (Enter keeps the current method).
+#
+# Local to this machine (never in the dotfiles):
+#   ~/.ssh/git-auth-<account>-<method>[.pub]      hardware auth key (.pub / handle)
+#   ~/.ssh/git-signing-<account>-<method>[.pub]   signing key, one per method
 #   ~/.ssh/allowed_signers            every signing key used here (git log, verify)
-#   ~/.config/git/dotgit              remembered expiry days per account
-#   secretive  Secure Enclave key in the Secretive app (Mac; VM: forwarded socket)
-#   yubikey    ed25519-sk key (Mac; VM: forwarded agent)
-#   key        ed25519 file with a passphrase
-# A VM only uses the Mac's keys: making or renewing them happens on the Mac.
+#   ~/.config/git/signing-<account>   included by gitconfig-<account>; missing = unsigned
+#   ~/.config/git/dotgit              per account: hardware, auth, touch, reuse, days
+# A VM only uses the Mac's hardware keys (vm up --agent): it never makes or renews them.
 # Old forms still work: --test (= status), <account> --new (= renew), sign ... --days N --pin.
 #
 # Inputs come from the chezmoi-managed config, nothing is duplicated here:
@@ -38,8 +41,11 @@ mac=false
 ALL_ACCOUNTS="github work"
 [ "$mac" = true ] && ALL_ACCOUNTS="github gitlab work"
 METHODS="secretive yubikey key none"
+AUTH_METHODS="secretive yubikey key"
 ALLOWED="$HOME/.ssh/allowed_signers"
 STATE="$HOME/.config/git/dotgit"
+CONF_DIR="$HOME/.ssh/dotgit"
+CM_DIR="$HOME/.ssh/cm"
 WRAPPER="$HOME/.ssh/ssh-keygen-sign" # chezmoi-managed: ssh-keygen against Secretive's agent
 if [[ "$mac" == true ]]; then
   SECRETIVE_SOCK="$HOME/Library/Containers/com.maxgoedjen.Secretive.SecretAgent/Data/socket.ssh"
@@ -47,7 +53,7 @@ else
   SECRETIVE_SOCK="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/secretive.sock" # vm up --agent
 fi
 
-usage() { sed -n '4,10p' "$0"; }
+usage() { sed -n '4,11p' "$0"; }
 
 # cmd: menu | status | setup | renew | sign. Flags are the old shortcuts.
 cmd=menu new=false pin=false days="" args="" method=""
@@ -195,13 +201,7 @@ accounts_here() {
   done
 }
 
-auth_key_path() {
-  local k
-  k="$(ssh_opt "$1" identityfile)"
-  echo "${k/#\~/$HOME}" # ssh -G prints IdentityFile unexpanded
-}
-
-# Remembered expiry days: account.<account>.authDays / signDays in ~/.config/git/dotgit.
+# Per-account settings in ~/.config/git/dotgit: account.<account>.<key>.
 state_get() { git config --file "$STATE" "account.$1.$2" 2>/dev/null || true; }
 state_set() {
   mkdir -p "$(dirname "$STATE")"
@@ -223,6 +223,18 @@ expiry_days() {
   state_set "$1" "$2" "$kd"
 }
 
+hardware_only() { [[ "$(state_get "$1" hardware)" == true ]]; }
+
+# Asks the hardware-only question for account $1 unless it is answered already.
+ask_hardware() {
+  [[ -z "$(state_get "$1" hardware)" ]] || return 0
+  if confirm "Keys for $1: hardware only (Secretive / YubiKey, never exportable files)?" no; then
+    state_set "$1" hardware true
+  else
+    state_set "$1" hardware false
+  fi
+}
+
 # Numbered menu step header: step <n> <total> <title>.
 step() { printf '\n[%s/%s] %s\n' "$1" "$2" "$3"; }
 
@@ -233,7 +245,7 @@ pick_account() {
   echo "Account?"
   for a in $list; do
     n=$((n + 1))
-    printf '  %d) %s\n' "$n" "$a"
+    printf '  %d) %s%s\n' "$n" "$a" "$(hardware_only "$a" && echo " [hw]")"
   done
   while :; do
     read -r -p "? Choose 1-$n (q = back): " ans </dev/tty || return 1
@@ -247,6 +259,414 @@ pick_account() {
       return 0
     fi
   done
+}
+
+# Secretive: the user makes the key in the app; its public key is read from the
+# clipboard into $1 (secret name $2). The clipboard is never printed.
+new_secretive() {
+  local tmp fp loaded used
+  echo "In Secretive: + new secret \"$2\", Notify (or Require Authentication),"
+  echo "  then select it and Copy Public Key."
+  read -r -p "Press Enter when the public key is on the clipboard... " _ </dev/tty || return 1
+  tmp="$(mktemp)"
+  printf '%s\n' "$(pbpaste)" >"$tmp"
+  if [[ "$(grep -c '' "$tmp")" != 1 || "$(cut -d' ' -f1 "$tmp")" != ecdsa-sha2-nistp256 ]] ||
+    ! fp="$(ssh-keygen -lf "$tmp" 2>/dev/null)"; then
+    rm -f "$tmp"
+    echo "error: the clipboard doesn't hold one Secretive public key (ecdsa-sha2-nistp256)" >&2
+    return 1
+  fi
+  # One key per account per purpose: a key already used here (e.g. the auth key still on
+  # the clipboard) is refused.
+  for used in "$HOME"/.ssh/git-auth-*.pub "$HOME"/.ssh/git-signing-*.pub; do
+    if [[ -f "$used" && "$used" != "$1" ]] && grep -qF "$(cut -d' ' -f2 "$tmp")" "$used"; then
+      rm -f "$tmp"
+      echo "error: that key is already $(basename "$used"); copy the new secret's public key" >&2
+      return 1
+    fi
+  done
+  fp="$(cut -d' ' -f2 <<<"$fp")"
+  loaded="$(SSH_AUTH_SOCK="$SECRETIVE_SOCK" ssh-add -l 2>/dev/null || true)"
+  if ! grep -qF "$fp" <<<"$loaded"; then
+    rm -f "$tmp"
+    echo "error: that key is not in Secretive's agent" >&2
+    return 1
+  fi
+  chmod 644 "$tmp"
+  mv "$tmp" "$1"
+}
+
+# Secret name for the Secretive app: git-<auth|signing>-<account>@<this Mac>[-<date> on renew].
+secret_name() {
+  local n="git-$1-$2@$(hostname -s)"
+  [[ "$3" == true ]] && n="$n-$(date +%Y%m%d)"
+  echo "$n"
+}
+
+# YubiKey ed25519-sk key: $1 path, $2 application, $3 comment.
+new_yubikey() {
+  echo "Touch the YubiKey when it blinks."
+  if [[ "$pin" == true ]]; then
+    ssh-keygen -t ed25519-sk -O application="$2" -O verify-required -C "$3" -f "$1" -N ''
+  else
+    ssh-keygen -t ed25519-sk -O application="$2" -C "$3" -f "$1" -N ''
+  fi
+}
+
+# A new key is made at <key>.new first; only when that worked is the old pair moved aside
+# and the new one moved in, so a failed or cancelled attempt leaves the old key working.
+# new_path <key>: where to make it (<key> itself when nothing is there yet).
+new_path() { if [[ -e "$1" || -e "$1.pub" ]]; then echo "$1.new"; else echo "$1"; fi; }
+
+# install_new <made> <key>: retire <key> and move <made>[.pub] in (no-op when the same).
+install_new() {
+  [[ "$1" != "$2" ]] || return 0
+  retire "$2"
+  if [[ -f "$1" ]]; then mv "$1" "$2"; fi
+  if [[ -f "$1.pub" ]]; then mv "$1.pub" "$2.pub"; fi
+}
+
+# discard_new <made> <key>: remove a half-made <key>.new pair after a failure.
+discard_new() {
+  [[ "$1" != "$2" ]] || return 0
+  rm -f "$1" "$1.pub"
+}
+
+# After a key is in place: agent / Keychain for method $1 at $2. Touch-only YubiKey keys go
+# into the agent so a VM can use them through forwarding.
+post_add() {
+  case "$1" in
+    yubikey)
+      if [[ "$pin" != true ]]; then ssh-add "$2" || echo "note: not in the agent; VMs can't use it (ssh-add $2)"; fi
+      ;;
+    key) if [[ "$mac" == true ]]; then ssh-add --apple-use-keychain "$2" || return 1; fi ;;
+  esac
+  return 0
+}
+
+# Asks the PIN question for a new YubiKey key (sets pin=).
+ask_pin() {
+  if [[ "$pin" != true ]] && confirm "Also require the YubiKey PIN? (then terminal only, no VM use)" no; then
+    pin=true
+  fi
+  return 0
+}
+
+# --- auth key ------------------------------------------------------------------
+
+auth_method() {
+  local m
+  m="$(state_get "$1" auth)"
+  echo "${m:-key}"
+}
+
+# The key file from ~/.ssh/config (Host block), not a dotgit include or a Mac copy.
+file_key_path() {
+  local out k
+  out="$(ssh -G "$1" 2>/dev/null)"
+  k="$(awk '$1 == "identityfile" && $2 !~ /git-auth-/ && $2 !~ /\/mac\// {print $2; exit}' <<<"$out")"
+  echo "${k/#\~/$HOME}"
+}
+
+auth_own() { echo "$HOME/.ssh/git-auth-$1-$2"; }
+auth_mac_pub() { echo "$HOME/.ssh/mac/git-auth-$1-$2.pub"; }
+
+# The public key of account $1's auth key for method $2 (what the server must have).
+auth_pub() {
+  local f
+  case "$2" in
+    key)
+      f="$(file_key_path "$1")"
+      if [[ "$mac" != true && ! -f "$f" ]] && agent_has "$HOME/.ssh/mac/$(basename "$f").pub"; then
+        echo "$HOME/.ssh/mac/$(basename "$f").pub"
+      else
+        echo "$f.pub"
+      fi
+      ;;
+    *) if [[ "$mac" == true ]]; then echo "$(auth_own "$1" "$2").pub"; else auth_mac_pub "$1" "$2"; fi ;;
+  esac
+}
+
+# Sets why= to what auth method $2 needs for account $1 here; true if nothing.
+auth_ok() {
+  local types
+  why=""
+  case "$2" in
+    secretive)
+      if [[ "$mac" == true ]]; then
+        [[ -S "$SECRETIVE_SOCK" ]] || why="the Secretive app, running"
+      elif [[ ! -S "$SECRETIVE_SOCK" || ! -f "$(auth_mac_pub "$1" secretive)" ]]; then
+        why="a Secretive auth key for $1 on the Mac, then vm agent <this vm> on"
+      elif ! agent_has "$(auth_mac_pub "$1" secretive)" "$SECRETIVE_SOCK"; then
+        why="the Mac's current key: vm agent <this vm> on, on the Mac"
+      fi
+      ;;
+    yubikey)
+      if [[ "$mac" == true ]]; then
+        types="$(ssh -Q key 2>/dev/null || true)"
+        grep -q '^sk-ssh-ed25519@' <<<"$types" || why="an ssh with security key support"
+      elif ! agent_has "$(auth_mac_pub "$1" yubikey)"; then
+        why="a YubiKey auth key for $1 on the Mac (no PIN), then vm agent <this vm> on"
+      fi
+      ;;
+    key) hardware_only "$1" && why="no exportable files (hardware-only account)" ;;
+  esac
+  [[ -z "$why" ]]
+}
+
+auth_label() {
+  case "$1" in
+    secretive) if [[ "$mac" == true ]]; then echo "Secure Enclave on this Mac (hardware)"; else echo "the Mac's Secretive key (hardware)"; fi ;;
+    yubikey) if [[ "$mac" == true ]]; then echo "handle on this Mac + the YubiKey (hardware)"; else echo "the Mac's YubiKey key (hardware)"; fi ;;
+    key) if [[ "$mac" == true ]]; then echo "file with a passphrase (exportable)"; else echo "the Mac's key file, or one made here (exportable)"; fi ;;
+  esac
+}
+
+# Sets am= from the auth menu for account $1. Enter keeps the current method; h toggles
+# hardware-only.
+choose_auth() {
+  local cur m answer n avail
+  cur="$(auth_method "$1")"
+  while :; do
+    n=0 avail=""
+    echo "Auth key for $1? (now: $cur; hardware-only: $(hardware_only "$1" && echo yes || echo no))"
+    for m in $AUTH_METHODS; do
+      n=$((n + 1))
+      if auth_ok "$1" "$m"; then
+        printf '  %d) %-10s %s\n' "$n" "$m" "$(auth_label "$m")"
+        avail="$avail $m"
+      else
+        printf '  %d) %-10s unavailable, needs %s\n' "$n" "$m" "$why"
+      fi
+    done
+    echo "  h) hardware-only: change"
+    read -r -p "? Choose 1-$n (Enter = keep $cur): " answer </dev/tty || return 1
+    if [[ "$answer" == h ]]; then
+      if hardware_only "$1"; then state_set "$1" hardware false; else state_set "$1" hardware true; fi
+      continue
+    fi
+    [[ -n "$answer" ]] || answer="$cur"
+    if [[ "$answer" =~ ^[0-9]+$ ]] && ((answer >= 1 && answer <= n)); then
+      answer="$(awk -v i="$answer" '{print $i}' <<<"$AUTH_METHODS")"
+    fi
+    if [[ " $avail " == *" $answer "* ]]; then
+      am="$answer"
+      return 0
+    fi
+    echo "  not available here; pick another number"
+  done
+}
+
+# For a hardware auth key: does each use prompt (Touch ID / touch)? Then reuse connections.
+ask_reuse() {
+  local t=false mins
+  case "$2" in
+    secretive) confirm "Does the secret require Touch ID (Require Authentication)?" no && t=true ;;
+    yubikey) t=true ;; # a touch per connection
+  esac
+  state_set "$1" touch "$t"
+  if [[ "$t" != true ]]; then
+    state_set "$1" reuse 0
+    return 0
+  fi
+  read -r -p "? Reuse a connection so the prompt comes once per … minutes (0 = every connection, Enter = 30): " mins </dev/tty || mins=""
+  [[ "$mins" =~ ^[0-9]+$ ]] || mins=30
+  state_set "$1" reuse "$mins"
+}
+
+# ~/.ssh/dotgit/<account>.conf for a hardware auth key (removed for a key file).
+write_auth_conf() {
+  local acct=$1 m=$2 f id reuse tmp
+  f="$CONF_DIR/$acct.conf"
+  if [[ "$m" == key ]]; then
+    rm -f "$f"
+    return 0
+  fi
+  case "$m" in
+    secretive) if [[ "$mac" == true ]]; then id="$(auth_own "$acct" secretive).pub"; else id="$(auth_mac_pub "$acct" secretive)"; fi ;;
+    yubikey) if [[ "$mac" == true ]]; then id="$(auth_own "$acct" yubikey)"; else id="$(auth_mac_pub "$acct" yubikey)"; fi ;;
+  esac
+  reuse="$(state_get "$acct" reuse)"
+  mkdir -p -m 700 "$CONF_DIR"
+  tmp="$(mktemp "$f.XXXXXX")"
+  {
+    echo "# Written by dot git ($acct auth: $m); local to this machine, not managed by chezmoi."
+    echo "IdentityFile $id"
+    if [[ "$m" == secretive ]]; then echo "IdentityAgent $SECRETIVE_SOCK"; fi
+    if [[ -n "$reuse" && "$reuse" != 0 ]]; then
+      mkdir -p -m 700 "$CM_DIR"
+      echo "ControlMaster auto"
+      echo "ControlPath $CM_DIR/%C"
+      echo "ControlPersist ${reuse}m"
+    fi
+  } >"$tmp"
+  mv "$tmp" "$f"
+}
+
+master_open() { ssh -O check "$1" >/dev/null 2>&1; }
+
+close_master() {
+  if master_open "$1"; then
+    ssh -O exit "$1" >/dev/null 2>&1 || true
+    echo "closed the reused connection to $1"
+  fi
+  return 0
+}
+
+# A VM without a usable Mac key: wait for forwarding (false), or make a VM-only key (true).
+vm_key_choice() {
+  local a
+  if [[ -f "$2" && -n "${SSH_AUTH_SOCK:-}" ]]; then
+    warn "the Mac's key changed: the forwarded agent doesn't hold ~/.ssh/mac/$(basename "$2")"
+  else
+    echo "no key for $1 here, and the Mac's isn't forwarded"
+  fi
+  echo "  1) use the Mac's key: on the Mac run  vm agent <this vm> on  (then dot git again)"
+  if hardware_only "$1"; then
+    echo "  (no VM-only key: $1 is hardware-only)"
+    echo "skipped $1: on the Mac run  vm agent <this vm> on,  then  dot git setup $1"
+    return 1
+  fi
+  echo "  2) make a VM-only key (uploaded once; vm restore wipes it)"
+  while :; do
+    read -r -p "? Choose 1-2: " a </dev/tty || return 1
+    case "$a" in
+      1) echo "skipped $1: on the Mac run  vm agent <this vm> on,  then  dot git setup $1"; return 1 ;;
+      2) return 0 ;;
+    esac
+  done
+}
+
+# Make sure account $1 has an auth key for method $2 (new=true: a new one). Sets pub=.
+ensure_auth_key() {
+  local acct=$1 m=$2 email key own mp stale made
+  email="$(account_email "$acct")"
+  case "$m" in
+    key)
+      key="$(file_key_path "$acct")"
+      mp="$HOME/.ssh/mac/$(basename "$key").pub"
+      if [[ "$new" == true ]]; then
+        expiry_days "$acct" authDays "Auth" || return 1
+        mkdir -p -m 700 "$HOME/.ssh"
+        made="$(new_path "$key")"
+        ssh-keygen -t ed25519 -C "${email:-$acct} ($(hostname))" -f "$made" || { discard_new "$made" "$key"; return 1; }
+        install_new "$made" "$key"
+      elif [[ "$mac" != true ]] && agent_has "$mp"; then
+        echo "using the Mac key from the forwarded agent"
+      elif [[ ! -f "$key" ]]; then
+        if [[ "$test_only" == true ]]; then
+          echo "missing key $key"
+          return 1
+        elif [[ "$mac" == true ]]; then
+          echo "missing key $key"
+          confirm "Generate a new key?" || return 1
+        else
+          vm_key_choice "$acct" "$mp" || return 1
+        fi
+        expiry_days "$acct" authDays "Auth" || return 1
+        mkdir -p -m 700 "$HOME/.ssh"
+        ssh-keygen -t ed25519 -C "${email:-$acct} ($(hostname))" -f "$key" || return 1
+      fi
+      if [[ "$test_only" != true && "$mac" == true && -f "$key" ]]; then
+        [[ -n "${SSH_AUTH_SOCK:-}" ]] || eval "$(ssh-agent -s)" >/dev/null
+        ssh-add --apple-use-keychain "$key" || return 1
+      fi
+      ;;
+    secretive | yubikey)
+      if [[ "$mac" != true ]]; then
+        auth_ok "$acct" "$m" || { warn "$m: needs $why"; return 1; }
+        echo "using the Mac's $m key"
+      else
+        own="$(auth_own "$acct" "$m")"
+        stale=false # a Secretive .pub whose secret was deleted in the app
+        if [[ "$m" == secretive && -f "$own.pub" ]] && ! agent_has "$own.pub" "$SECRETIVE_SOCK"; then
+          stale=true
+        fi
+        if [[ "$new" == true || ! -f "$own.pub" || "$stale" == true ]]; then
+          [[ "$test_only" != true ]] || { echo "missing $m auth key ($own.pub)"; return 1; }
+          auth_ok "$acct" "$m" || { warn "$m: needs $why"; return 1; }
+          expiry_days "$acct" authDays "Auth" || return 1
+          made="$(new_path "$own")"
+          if [[ "$m" == secretive ]]; then
+            new_secretive "$made.pub" "$(secret_name auth "$acct" "$new")" || { discard_new "$made" "$own"; return 1; }
+          else
+            ask_pin
+            new_yubikey "$made" "ssh:git-auth-$acct" "${email:-$acct} git-auth ($(hostname))" || { discard_new "$made" "$own"; return 1; }
+          fi
+          install_new "$made" "$own"
+          post_add "$m" "$own"
+        fi
+      fi
+      ;;
+  esac
+  [[ "$test_only" == true ]] || write_auth_conf "$acct" "$m"
+  pub="$(auth_pub "$acct" "$m")"
+}
+
+# Auth key for account $1: plan + method (setup), key, ssh -T, upload when refused.
+auth_account() {
+  local name=$1 host email am old
+  host="$(ssh_opt "$name" hostname)"
+  email="$(account_email "$name")"
+  printf '\n==> %s (%s, %s)\n' "$name" "$host" "${email:-no email}"
+  if [[ "$host" == "$name" ]]; then
+    echo "error: no 'Host $name' in ~/.ssh/config (run chezmoi apply)" >&2
+    return 1
+  fi
+
+  am="$(auth_method "$name")"
+  if [[ "$test_only" != true && "$planned" != true ]]; then
+    echo "Plan:"
+    echo "  1. auth key   choose 1-3 (now: $am$(hardware_only "$name" && echo ", hardware-only"))"
+    echo "  2. server     ssh -T git@$name; refused → copy key, open $(key_page "$host")"
+    echo "                ($(page_hint "$host" auth "$(state_get "$name" authDays)")), wait, retest"
+    echo "  3. signing    choose 1-4 (now: $(current_method "$name"))"
+    step 1 3 "auth key"
+    old="$am"
+    choose_auth "$name" || return 1
+    if [[ "$am" != key && ("$am" != "$old" || -z "$(state_get "$name" touch)") ]]; then
+      ask_reuse "$name" "$am"
+    fi
+    state_set "$name" auth "$am"
+  fi
+
+  ensure_auth_key "$name" "$am" || return 1
+
+  [[ "$test_only" == true || "$planned" == true ]] || step 2 3 "server: ssh -T git@$name"
+  if [[ "$test_only" == true && "$(state_get "$name" touch)" == true ]] && ! master_open "$name"; then
+    echo "not checked: ssh git@$name prompts (Touch ID / touch); dot git setup $name tests it"
+    return 0
+  fi
+  if ssh_ok "$name"; then
+    ok "ssh git@$name ($am$([[ -f "$pub" ]] && echo ", $(age_days "$pub") days old"))"
+    retire_file_key "$name" "$am"
+    return 0
+  fi
+  echo "failed: ssh git@$name (key not on the server?)"
+  [[ "$test_only" != true && -f "$pub" ]] || return 1
+
+  offer_pub "$pub" "$host" "$(page_hint "$host" auth "$(state_get "$name" authDays)")"
+  read -r -p "Press Enter after adding the key to retest... " _ </dev/tty || return 1
+  if ssh_ok "$name"; then
+    ok "ssh git@$name"
+    retire_file_key "$name" "$am"
+  else
+    echo "still failing: ssh -T git@$name"
+    return 1
+  fi
+}
+
+# After a hardware auth key works on a hardware-only account, offer to move the old,
+# exportable key file aside.
+retire_file_key() {
+  local f
+  [[ "$test_only" != true && "$1" != "" && "$2" != key && "$mac" == true ]] || return 0
+  f="$(file_key_path "$1")"
+  [[ -f "$f" ]] || return 0
+  if confirm "Move the old key file $(basename "$f") aside? (exportable; $2 works now)" no; then
+    retire "$f"
+  fi
+  return 0
 }
 
 # --- signing ---------------------------------------------------------------
@@ -279,7 +699,7 @@ sign_key() {
   esac
 }
 
-# Sets why= to what <method> ($2) needs to sign for <account> ($1) here; true if nothing.
+# Sets why= to what signing method $2 needs for account $1 here; true if nothing.
 method_ok() {
   local types
   why=""
@@ -303,11 +723,12 @@ method_ok() {
         why="a YubiKey key for $1 on the Mac (no PIN), then vm agent <this vm> on"
       fi
       ;;
+    key) hardware_only "$1" && why="no exportable files (hardware-only account)" ;;
   esac
   [[ -z "$why" ]]
 }
 
-# Menu line for method $2 of account $1 (host $3).
+# Menu line for signing method $2 of account $1 (host $3).
 method_label() {
   case "$2" in
     secretive)
@@ -322,7 +743,7 @@ method_label() {
       elif [[ -n "$3" && "$3" == "$(account_host work)" ]]; then
         echo "plain key file (note: some hosts' policies accept only hardware keys)"
       else
-        echo "plain key file with a passphrase"
+        echo "plain key file with a passphrase (exportable)"
       fi
       ;;
     none) echo "don't sign" ;;
@@ -343,7 +764,7 @@ made_text() {
 choose_method() {
   local cur m answer n=0 avail=""
   cur="$(current_method "$1")"
-  echo "Sign commits for $1? (now: $cur)"
+  echo "Sign commits for $1? (now: $cur$(hardware_only "$1" && echo "; hardware-only"))"
   for m in $METHODS; do
     n=$((n + 1))
     if method_ok "$1" "$m"; then
@@ -416,60 +837,21 @@ test_sign() {
   return $rc
 }
 
-# Secretive: the user makes the key in the app; its public key is read from the
-# clipboard into $1 (account $2). The clipboard is never printed.
-new_secretive() {
-  local tmp fp loaded name="git-signing-$2"
-  [[ "$sign_new" == true ]] && name="$name-$(date +%Y%m%d)"
-  echo "In Secretive: + new secret \"$name\", Notify (or Require Authentication),"
-  echo "  then select it and Copy Public Key."
-  read -r -p "Press Enter when the public key is on the clipboard... " _ </dev/tty || return 1
-  tmp="$(mktemp)"
-  printf '%s\n' "$(pbpaste)" >"$tmp"
-  if [[ "$(grep -c '' "$tmp")" != 1 || "$(cut -d' ' -f1 "$tmp")" != ecdsa-sha2-nistp256 ]] ||
-    ! fp="$(ssh-keygen -lf "$tmp" 2>/dev/null)"; then
-    rm -f "$tmp"
-    echo "error: the clipboard doesn't hold one Secretive public key (ecdsa-sha2-nistp256)" >&2
-    return 1
-  fi
-  fp="$(cut -d' ' -f2 <<<"$fp")"
-  loaded="$(SSH_AUTH_SOCK="$SECRETIVE_SOCK" ssh-add -l 2>/dev/null || true)"
-  if ! grep -qF "$fp" <<<"$loaded"; then
-    rm -f "$tmp"
-    echo "error: that key is not in Secretive's agent" >&2
-    return 1
-  fi
-  chmod 644 "$tmp"
-  mv "$tmp" "$1"
-}
-
-# Make the key for method $2 of account $1 at $3 (email $4).
+# Make the signing key for method $2 of account $1 at $3 (email $4).
 new_key() {
   local comment="${4:-$1} git-sign ($(hostname))"
   mkdir -p -m 700 "$HOME/.ssh"
   case "$2" in
-    secretive) new_secretive "$3.pub" "$1" ;;
-    yubikey)
-      echo "Touch the YubiKey when it blinks."
-      if [[ "$pin" == true ]]; then
-        ssh-keygen -t ed25519-sk -O application="ssh:git-sign-$1" -O verify-required -C "$comment" -f "$3" -N '' || return 1
-      else
-        ssh-keygen -t ed25519-sk -O application="ssh:git-sign-$1" -C "$comment" -f "$3" -N '' || return 1
-        # a touch-only key in the agent can sign from a VM through forwarding
-        ssh-add "$3" || echo "note: not in the agent; VMs can't sign with it (ssh-add $3)"
-      fi
-      ;;
-    key)
-      ssh-keygen -t ed25519 -C "$comment" -f "$3" || return 1
-      if [[ "$mac" == true ]]; then ssh-add --apple-use-keychain "$3" || return 1; fi
-      ;;
+    secretive) new_secretive "$3.pub" "$(secret_name signing "$1" "$sign_new")" ;;
+    yubikey) new_yubikey "$3" "ssh:git-sign-$1" "$comment" ;;
+    key) ssh-keygen -t ed25519 -C "$comment" -f "$3" ;;
   esac
 }
 
 # Switch account $1 to method= (asked when empty) using an existing key, or create +
 # upload one (also when sign_new); then write signing-<account>.
 sign_account() {
-  local acct=$1 host email cur own key pub p stale create=false
+  local acct=$1 host email cur own key pub p stale made mk create=false
   host="$(account_host "$acct")" || { echo "error: no 'Host $acct' in ~/.ssh/config (run chezmoi apply)" >&2; return 1; }
   email="$(account_email "$acct")"
   cur="$(current_method "$acct")"
@@ -508,22 +890,27 @@ sign_account() {
 
   p="$pin"
   if [[ "$create" == true ]]; then
-    if [[ "$method" == yubikey && "$pin" != true ]] &&
-      confirm "Also require the YubiKey PIN? (then terminal only, no VM use)" no; then
-      pin=true p=true
-    fi
+    [[ "$method" != yubikey ]] || ask_pin
+    p="$pin"
     expiry_days "$acct" signDays "Signing" || return 1
     echo "New signing key for $acct ($method):"
     echo "  a. key      $(made_text "$method")$([[ "$sign_new" == true ]] && echo "; old key kept as .bak-<date>")"
     echo "  b. test     sign + verify a test message (notification / touch / passphrase)"
     echo "  c. upload   $(key_page "$host") ($(page_hint "$host" signing "$kd"))"
     echo "-- a. key"
-    [[ "$sign_new" == true ]] && retire "$own"
-    new_key "$acct" "$method" "$own" "$email" || return 1
-    allow_signer "$email" "$pub"
+    made="$(new_path "$own")"
+    new_key "$acct" "$method" "$made" "$email" || { discard_new "$made" "$own"; return 1; }
+    allow_signer "$email" "$made.pub"
     echo "-- b. test"
-    test_sign "$email" "$key" "$method" || { echo "error: test signature failed; signing-$acct unchanged" >&2; return 1; }
+    if [[ "$method" == secretive ]]; then mk="$made.pub"; else mk="$made"; fi
+    if ! test_sign "$email" "$mk" "$method"; then
+      discard_new "$made" "$own"
+      echo "error: test signature failed; signing-$acct and the old key unchanged" >&2
+      return 1
+    fi
     ok "test signature verified"
+    install_new "$made" "$own"
+    post_add "$method" "$own" || return 1
     echo "-- c. upload"
     offer_pub "$pub" "$host" "$(page_hint "$host" signing "$kd")"
     read -r -p "Press Enter after adding it... " _ </dev/tty || true
@@ -538,106 +925,11 @@ sign_account() {
   ok "$acct signs with $method"
 }
 
-# --- auth ------------------------------------------------------------------
-
-# A VM without a usable Mac key: wait for forwarding (false), or make a VM-only key (true).
-vm_key_choice() {
-  local a
-  if [[ -f "$2" && -n "${SSH_AUTH_SOCK:-}" ]]; then
-    warn "the Mac's key changed: the forwarded agent doesn't hold ~/.ssh/mac/$(basename "$2")"
-  else
-    echo "no key for $1 here, and the Mac's isn't forwarded"
-  fi
-  echo "  1) use the Mac's key: on the Mac run  vm agent <this vm> on  (then dot git again)"
-  echo "  2) make a VM-only key (uploaded once; vm restore wipes it)"
-  while :; do
-    read -r -p "? Choose 1-2: " a </dev/tty || return 1
-    case "$a" in
-      1) echo "skipped $1: on the Mac run  vm agent <this vm> on,  then  dot git setup $1"; return 1 ;;
-      2) return 0 ;;
-    esac
-  done
-}
-
-# Auth key for account $1: plan (unless planned/test), key, ssh -T, upload when refused.
-auth_account() {
-  local name=$1 host key email action mp ad
-  host="$(ssh_opt "$name" hostname)"
-  key="$(auth_key_path "$name")"
-  email="$(account_email "$name")"
-  mp="$HOME/.ssh/mac/$(basename "$key").pub"
-  printf '\n==> %s (%s, %s, %s)\n' "$name" "$host" "$key" "${email:-no email}"
-
-  if [[ "$host" == "$name" ]]; then
-    echo "error: no 'Host $name' in ~/.ssh/config (run chezmoi apply)" >&2
-    return 1
-  fi
-
-  if [[ "$test_only" != true && "$planned" != true ]]; then
-    if [[ "$mac" != true ]] && agent_has "$mp"; then
-      action="the Mac's key through the forwarded agent"
-    elif [[ -f "$key" ]]; then
-      action="existing $(basename "$key")$([[ "$mac" == true ]] && echo ", added to the agent")"
-    elif [[ "$mac" == true ]]; then
-      action="missing: generate one (asks)"
-    else
-      action="missing: use the Mac's (forwarding) or make a VM-only key (asks)"
-    fi
-    echo "Plan:"
-    echo "  1. auth key   $action"
-    echo "  2. server     ssh -T git@$name; refused → copy key, open $(key_page "$host")"
-    echo "                ($(page_hint "$host" auth "$(state_get "$name" authDays)")), wait, retest"
-    echo "  3. signing    choose 1-4 (now: $(current_method "$name"))"
-    step 1 3 "auth key"
-  fi
-
-  [[ "$new" == true ]] && retire "$key"
-  if [[ "$mac" != true && "$new" != true ]] && agent_has "$mp"; then
-    echo "using the Mac key from the forwarded agent"
-  elif [[ ! -f "$key" ]]; then
-    if [[ "$new" != true ]]; then
-      if [[ "$test_only" == true ]]; then
-        echo "missing key $key"
-        return 1
-      elif [[ "$mac" == true ]]; then
-        echo "missing key $key"
-        confirm "Generate a new key?" || return 1
-      else
-        vm_key_choice "$name" "$mp" || return 1
-      fi
-    fi
-    expiry_days "$name" authDays "Auth" || return 1
-    mkdir -p -m 700 "$HOME/.ssh"
-    ssh-keygen -t ed25519 -C "${email:-$name} ($(hostname))" -f "$key" || return 1
-  fi
-
-  if [[ "$test_only" != true && "$mac" == true && -f "$key" ]]; then
-    [[ -n "${SSH_AUTH_SOCK:-}" ]] || eval "$(ssh-agent -s)" >/dev/null
-    ssh-add --apple-use-keychain "$key" || return 1
-  fi
-
-  [[ "$test_only" == true || "$planned" == true ]] || step 2 3 "server: ssh -T git@$name"
-  if ssh_ok "$name"; then
-    ok "ssh git@$name$([[ -f "$key.pub" ]] && echo " (key $(age_days "$key.pub") days old)")"
-    return 0
-  fi
-  echo "failed: ssh git@$name (key not on the server?)"
-  [[ "$test_only" != true && -f "$key.pub" ]] || return 1
-
-  ad="$(state_get "$name" authDays)"
-  offer_pub "$key.pub" "$host" "$(page_hint "$host" auth "$ad")"
-  read -r -p "Press Enter after adding the key to retest... " _ </dev/tty || return 1
-  if ssh_ok "$name"; then
-    ok "ssh git@$name"
-  else
-    echo "still failing: ssh -T git@$name"
-    return 1
-  fi
-}
-
-# setup: auth key (steps 1-2), then signing (step 3).
+# setup: hardware-only (asked once), auth key (steps 1-2), then signing (step 3).
 setup_account() {
   planned=false new=false
+  account_host "$1" >/dev/null || { echo "error: no 'Host $1' in ~/.ssh/config (run chezmoi apply)" >&2; return 1; }
+  ask_hardware "$1"
   auth_account "$1" || return 1
   step 3 3 "signing"
   method=""
@@ -647,14 +939,14 @@ setup_account() {
 # --- renew -----------------------------------------------------------------
 
 renew_account() {
-  local acct=$1 host key cur what ans ad sd n=0 mac_auth=false mac_sign=false auth_ok=true sign_ok=true
+  local acct=$1 host am cur what ans ad sd n=0 mac_auth=false mac_sign=false auth_ok=true sign_ok=true
   host="$(account_host "$acct")" || { echo "error: no 'Host $acct' in ~/.ssh/config (run chezmoi apply)" >&2; return 1; }
-  key="$(auth_key_path "$acct")"
+  am="$(auth_method "$acct")"
   cur="$(current_method "$acct")"
 
   # A VM only uses the Mac's keys; those are renewed on the Mac.
   if [[ "$mac" != true ]]; then
-    [[ -f "$key" ]] || mac_auth=true
+    if [[ "$am" != key || ! -f "$(file_key_path "$acct")" ]]; then mac_auth=true; fi
     case "$cur" in
       secretive | yubikey) mac_sign=true ;;
       key) [[ "$(signing_get "$acct" user.signingkey)" == "$HOME/.ssh/mac/"* ]] && mac_sign=true ;;
@@ -672,7 +964,7 @@ renew_account() {
   if [[ -z "$what" ]]; then
     echo "Renew $acct: what?"
     if [[ "$auth_ok" == true ]]; then
-      echo "  1) auth key      $(basename "$key")"
+      echo "  1) auth key      $am"
     else
       echo "  1) auth key      unavailable: the Mac's key, renew it on the Mac"
     fi
@@ -710,7 +1002,10 @@ renew_account() {
   echo "Plan:"
   if [[ "$what" != sign ]]; then
     n=$((n + 1))
-    echo "  $n. auth key     new $(basename "$key") (old → .bak-<date>) → page: $(page_hint "$host" auth "$ad")"
+    case "$am" in
+      key) echo "  $n. auth key     new $(basename "$(file_key_path "$acct")") (old → .bak-<date>) → page: $(page_hint "$host" auth "$ad")" ;;
+      *) echo "  $n. auth key     $(made_text "$am") → page: $(page_hint "$host" auth "$ad")" ;;
+    esac
   fi
   if [[ "$what" != auth ]]; then
     n=$((n + 1))
@@ -721,12 +1016,13 @@ renew_account() {
     echo "  $n. VMs          reminder: vm agent <vm> on for each running VM"
   fi
   n=$((n + 1))
-  echo "  $n. cleanup      reminder: delete the old keys at $(key_page "$host")"
+  echo "  $n. cleanup      reminder: delete the old keys at $(key_page "$host")$([[ "$am" == secretive || "$cur" == secretive ]] && echo " and in Secretive")"
   confirm "Continue? (moves the current key aside)" no || return 1
 
   planned=true
   if [[ "$what" != sign ]]; then
     new=true days="$ad"
+    close_master "$acct"
     auth_account "$acct" || return 1
     new=false
   fi
@@ -738,7 +1034,7 @@ renew_account() {
   echo
   echo "Next:"
   if [[ "$mac" == true ]]; then echo "  vm agent <vm> on      for each running VM (sends the new .pub)"; fi
-  echo "  delete the old keys at $(key_page "$host")"
+  echo "  delete the old keys at $(key_page "$host")$([[ "$am" == secretive || "$cur" == secretive ]] && echo " and the old secrets in Secretive")"
 }
 
 # --- status ------------------------------------------------------------------
@@ -755,19 +1051,36 @@ days_cell() {
 
 # Sets cell= and hot= for account $1's auth key.
 auth_status() {
-  local key mp
-  key="$(auth_key_path "$1")"
-  mp="$HOME/.ssh/mac/$(basename "$key").pub"
+  local am key mp p
+  am="$(auth_method "$1")"
   hot=false
+  if [[ "$am" != key ]]; then
+    p="$(auth_pub "$1" "$am")"
+    if ! auth_ok "$1" "$am"; then
+      hot=true cell="$am: can't use here"
+    elif [[ ! -f "$p" ]]; then
+      hot=true cell="$am: no key"
+    else
+      days_cell "$(age_days "$p")" "$(state_get "$1" authDays)"
+      cell="$am $cell"
+    fi
+    return 0
+  fi
+  key="$(file_key_path "$1")"
+  mp="$HOME/.ssh/mac/$(basename "$key").pub"
   if [[ "$mac" != true ]] && agent_has "$mp"; then
     cell="Mac's key"
   elif [[ -f "$key.pub" ]]; then
     days_cell "$(age_days "$key.pub")" "$(state_get "$1" authDays)"
+    cell="key $cell"
   elif [[ "$mac" != true && -f "$mp" ]]; then
     hot=true
     if [[ -n "${SSH_AUTH_SOCK:-}" ]]; then cell="Mac key changed"; else cell="Mac key not forwarded"; fi
   else
     hot=true cell="no key"
+  fi
+  if [[ "$cell" != *"Mac key"* && "$cell" != "no key" ]] && hardware_only "$1"; then
+    hot=true cell="exportable key file"
   fi
 }
 
@@ -818,9 +1131,18 @@ repo_facts() {
   fi
 }
 
+# Accounts with connection reuse on.
+reuse_accounts() {
+  local a r
+  for a in $(accounts_here); do
+    r="$(state_get "$a" reuse)"
+    if [[ -n "$r" && "$r" != 0 ]]; then echo "$a"; fi
+  done
+}
+
 # `dot git`: one row per account, this repo, and suggestions (no action is preselected).
 status_table() {
-  local a n=0 ac sc sv rc=0 fw sock line suggest="" notes=""
+  local a n=0 ac sc sv rc=0 fw sock line name suggest="" notes=""
   if [[ "$mac" == true ]]; then
     echo "git accounts (Mac)"
   else
@@ -829,16 +1151,20 @@ status_table() {
     if [[ -S "$SECRETIVE_SOCK" ]]; then sock="Secretive socket ok"; else sock="no Secretive socket"; fi
     echo "git accounts ($(hostname) · $fw · $sock)"
   fi
-  printf '  %-2s %-8s %-26s %-30s %s\n' "#" account "auth key" signing server
+  printf '  %-2s %-11s %-26s %-28s %s\n' "#" account "auth key" signing server
   for a in $(accounts_here); do
     n=$((n + 1))
+    name="$a"
+    hardware_only "$a" && name="$a [hw]"
     auth_status "$a"
     ac="$cell"
     if [[ "$hot" == true ]]; then
       ac="!! $ac"
       case "$cell" in
         "Mac key"*) suggest="$suggest"$'\n'"  on the Mac: vm agent <this vm> on   ($a: $cell)" ;;
-        "no key") suggest="$suggest"$'\n'"  set up $a" ;;
+        "no key" | *": no key") suggest="$suggest"$'\n'"  set up $a" ;;
+        *"can't use here") suggest="$suggest"$'\n'"  set up $a ($cell)" ;;
+        "exportable key file") suggest="$suggest"$'\n'"  set up $a → auth 1 secretive or 2 yubikey (hardware-only)" ;;
         *) suggest="$suggest"$'\n'"  renew $a: auth key ($cell)" ;;
       esac
     fi
@@ -852,13 +1178,16 @@ status_table() {
         suggest="$suggest"$'\n'"  renew $a: signing key ($cell)"
       fi
     fi
-    if ssh_ok "$a"; then
+    if [[ "$(state_get "$a" touch)" == true ]] && ! master_open "$a"; then
+      sv="not checked (prompts)"
+    elif ssh_ok "$a"; then
       sv=ok
+      master_open "$a" && sv="ok, reused"
     else
       sv="!! refused"
       [[ "$ac" == "!! "* ]] || suggest="$suggest"$'\n'"  set up $a (key not on the server?)"
     fi
-    printf '  %-2s %-8s %-26s %-30s %s\n' "$n" "$a" "$ac" "$sc" "$sv"
+    printf '  %-2s %-11s %-26s %-28s %s\n' "$n" "$name" "$ac" "$sc" "$sv"
   done
 
   repo_facts
@@ -968,22 +1297,34 @@ details() {
   echo "all accounts ok"
 }
 
-menu() {
+close_connections() {
   local a
+  for a in $(reuse_accounts); do close_master "$a"; done
+  ok "no reused connections left (the next push asks again)"
+}
+
+menu() {
+  local a reuse max=4
+  reuse="$(reuse_accounts)"
   status_table
   echo
-  echo "  1) set up an account   key, upload, test; then signing"
+  echo "  1) set up an account   auth key, upload, test; then signing"
   echo "  2) change signing      method for an account"
   echo "  3) renew               new auth and/or signing key"
   echo "  4) details             full read-only check"
+  if [[ -n "$reuse" ]]; then
+    echo "  5) close connections   end reused ssh connections (next push asks again)"
+    max=5
+  fi
   echo "  q) quit"
   while :; do
-    read -r -p "? Choose 1-4: " a </dev/tty || return 0
+    read -r -p "? Choose 1-$max: " a </dev/tty || return 0
     case "$a" in
       1) pick_account || return 0; setup_account "$acct"; return ;;
       2) pick_account || return 0; method=""; sign_account "$acct"; return ;;
       3) pick_account || return 0; renew_account "$acct"; return ;;
       4) details; return ;;
+      5) [[ "$max" == 5 ]] || continue; close_connections; return ;;
       q) return 0 ;;
     esac
   done
