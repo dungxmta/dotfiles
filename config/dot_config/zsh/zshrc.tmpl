@@ -277,6 +277,7 @@ _cached_init direnv hook zsh && source $REPLY
 
 ## fzf
 source "$HOME/.config/zsh/fzf.zsh"
+source "$HOME/.config/zsh/git-push.zsh" # git-push <Tab>: pick repos with commits to push
 {{- end }}
 {{- if has "starship" $t }}
 
