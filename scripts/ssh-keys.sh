@@ -10,11 +10,14 @@
 # Layout: entry SSH/<key-name> with attachments <key-name> and <key-name>.pub
 # Env: KEYS_DB (default ~/SYNC/keys.kdbx), SSH_DIR (default ~/.ssh)
 # Must stay bash 3.2 compatible (macOS /bin/bash).
+# DEPRECATED: keys are per machine now (dot git); kept working for old databases.
 set -euo pipefail
 
 KEYS_DB="${KEYS_DB:-$HOME/SYNC/keys.kdbx}"
 SSH_DIR="${SSH_DIR:-$HOME/.ssh}"
 GROUP="SSH"
+
+echo "warning: ssh-keys.sh is deprecated; keys are per machine now (dot git)" >&2
 
 if ! command -v keepassxc-cli >/dev/null 2>&1; then
   echo "error: keepassxc-cli not found (brew install --cask keepassxc)" >&2

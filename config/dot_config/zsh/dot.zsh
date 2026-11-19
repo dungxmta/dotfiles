@@ -45,6 +45,7 @@ dot() {
     outdated) repo="$(_dot_repo)" && "$repo/install.sh" --outdated "$@" ;;
     push)   repo="$(_dot_repo)" && git -C "$repo" push "$@" ;;
     repo)   repo="$(_dot_repo)" && cd "$repo" ;;
+    git)    repo="$(_dot_repo)" && "$repo/scripts/setup-git.sh" "$@" ;;
     help|-h|--help)
       cat <<'EOF'
 usage: dot <command>
@@ -63,6 +64,9 @@ usage: dot <command>
   upgrade --all    upgrade everything outdated
   push         push already-committed changes (never stages or commits)
   repo         cd into the dotfiles repo
+  git [ACCT...] SSH key per git account: make, upload, test; then sign? (--new renews)
+  git sign ACCT [METHOD]  commit signing: secretive | yubikey | key | none
+  git --test   read-only: ssh, signing keys, this repo's email and signed commits
 EOF
       ;;
     *) print -u2 "dot: unknown command: $cmd (dot help)"; return 2 ;;

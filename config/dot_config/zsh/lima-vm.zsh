@@ -183,15 +183,37 @@ _limavm_ask_agent() {
   return 0
 }
 
+# Secretive's agent socket on the Mac, and where forwarding puts it in the VM
+# (`dot git sign <account> secretive` there signs through it).
+_limavm_secretive_host=$HOME/Library/Containers/com.maxgoedjen.Secretive.SecretAgent/Data/socket.ssh
+_limavm_secretive_guest='/run/user/{{.UID}}/secretive.sock'
+
+# _limavm_secretive_fwd NAME true|false — add (true, and Secretive's socket exists) or remove
+# the reverse socket forward of Secretive's agent. NAME is stopped; edits only on a change.
+_limavm_secretive_fwd() {
+  local want=$2 have=false
+  [[ $want == true && ! -S $_limavm_secretive_host ]] && want=false
+  [[ $(limactl list --format '{{range .Config.PortForwards}}{{.GuestSocket}} {{end}}' "$1" 2>/dev/null) == *secretive.sock* ]] && have=true
+  [[ $want == $have ]] && return 0
+  local -a sets
+  sets=("--set=.portForwards = ((.portForwards // []) | map(select(.guestSocket != \"$_limavm_secretive_guest\")))")
+  [[ $want == true ]] &&
+    sets+=("--set=.portForwards += [{\"guestSocket\": \"$_limavm_secretive_guest\", \"hostSocket\": \"$_limavm_secretive_host\", \"reverse\": true}]")
+  limactl edit --tty=false "$1" "${sets[@]}"
+}
+
 # _limavm_start NAME [true|false] — start a stopped NAME with agent forwarding decided for
 # this boot (asked when not given), so the Mac's keys reach a VM only when wanted; `true`
-# also sends the Mac's public keys.
+# also forwards Secretive's agent (when running) and sends the Mac's public keys.
 _limavm_start() {
   local REPLY
   _limavm_ask_agent "$1" "$2" || return
   local agent=$REPLY
   if [[ -n $agent && $(limactl list --format '{{.Config.SSH.ForwardAgent}}' "$1" 2>/dev/null) != $agent ]]; then
     limactl edit --tty=false "$1" --set ".ssh.forwardAgent=$agent" || return
+  fi
+  if [[ -n $agent ]]; then
+    _limavm_secretive_fwd "$1" "$agent" || return
   fi
   limactl start "$1" || return
   [[ $agent == true ]] && _limavm_push_keys "$1"
@@ -428,19 +450,22 @@ _limavm_clone() {
   fi
 }
 
-# _limavm_push_keys NAME — copy the Mac's ~/.ssh/id_ed25519_{github,work}.pub into the VM's
-# ~/.ssh/mac/. ssh there uses IdentitiesOnly, so it offers a forwarded key only when it
-# finds the key's .pub. Public halves only; the private keys stay on the Mac.
+# _limavm_push_keys NAME — copy the Mac's ~/.ssh/id_ed25519_{github,work}.pub and signing
+# keys ~/.ssh/git-signing-*.pub into the VM's ~/.ssh/mac/. ssh there uses IdentitiesOnly, so
+# it offers a forwarded key only when it finds the key's .pub; `dot git sign` there signs
+# with the Mac's keys through them. Public halves only; the private keys stay on the Mac.
 _limavm_push_keys() {
-  local alias key sent=
-  for alias in github work; do
-    key=$HOME/.ssh/id_ed25519_$alias.pub
-    [[ -f $key ]] || continue
+  local key base sent=
+  local -a keys
+  keys=($HOME/.ssh/id_ed25519_{github,work}.pub(N) $HOME/.ssh/git-signing-*.pub(N))
+  keys=(${keys:#*.bak-*})
+  for key in $keys; do
+    base=${key:t}
     limactl shell --workdir / "$1" -- sh -c \
-      "umask 077; mkdir -p ~/.ssh/mac && cat > ~/.ssh/mac/id_ed25519_$alias.pub" <"$key" || return
-    sent+=" $alias"
+      "umask 077; mkdir -p ~/.ssh/mac && cat > ~/.ssh/mac/$base" <"$key" || return
+    sent+=" ${base%.pub}"
   done
-  print -u2 -r -- "$1: Mac public keys sent:${sent:- none (no ~/.ssh/id_ed25519_{github,work}.pub)}"
+  print -u2 -r -- "$1: Mac public keys sent:${sent:- none (no ~/.ssh/id_ed25519_{github,work}.pub or git-signing-*.pub)}"
 }
 
 # vm agent [NAME] [on|off] — the Mac's SSH keys in a running VM through agent forwarding, for

@@ -4,8 +4,11 @@
 {{- $mac := eq .chezmoi.os "darwin" -}}
 {{- $t := .tools -}}
 
-# --- ssh: private keys are never in git ---
+# --- ssh: keys are made per machine (dot git), never in git ---
 .ssh/id_*
+.ssh/git-signing-*
+.ssh/allowed_signers
+.config/git/signing-*
 .ssh/known_hosts
 .ssh/known_hosts.old
 .ssh/agent/
@@ -42,9 +45,6 @@
 {{- else }}
 
 {{- if $mac }}
-
-# --- this Mac's public keys (Linux machines make their own: scripts/setup-git.sh) ---
-!.ssh/id_*.pub
 
 # --- Linux-only ---
 .zshenv

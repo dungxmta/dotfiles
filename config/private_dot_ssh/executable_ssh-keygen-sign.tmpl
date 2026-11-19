@@ -1,0 +1,14 @@
+#!/bin/bash
+# gpg.ssh.program for the "secretive" signing method (dot git sign <account> secretive):
+# ssh-keygen against Secretive's agent only. The shell's SSH_AUTH_SOCK is left alone.
+{{- if eq .chezmoi.os "darwin" }}
+sock="$HOME/Library/Containers/com.maxgoedjen.Secretive.SecretAgent/Data/socket.ssh"
+{{- else }}
+# Forwarded from the Mac when the VM boots with agent forwarding (vm up --agent).
+sock="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/secretive.sock"
+{{- end }}
+if [ ! -S "$sock" ] || [ ! -O "$sock" ]; then
+  echo "ssh-keygen-sign: no Secretive agent socket owned by $(id -un) at $sock" >&2
+  exit 1
+fi
+SSH_AUTH_SOCK="$sock" exec /usr/bin/ssh-keygen "$@"

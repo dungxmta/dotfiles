@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Leak guard for this public repo: refuse a commit whose added lines contain the work Git
+# host, the work email or its domain (read from the local chezmoi data, never stored
+# here), or a pattern from ~/.config/dotfiles/leak-patterns (one extended regex per line,
+# # comments; also untracked). Enable once per clone: git config core.hooksPath .githooks
+# A false positive: fix the pattern, or git commit --no-verify.
+# Must stay bash 3.2 compatible (macOS /bin/bash).
+set -euo pipefail
+
+PATTERNS="${DOTFILES_LEAK_PATTERNS:-$HOME/.config/dotfiles/leak-patterns}"
+
+# Added lines as "path: line".
+added="$(git diff --cached --no-color --no-ext-diff -U0 --diff-filter=ACMR |
+  awk '/^\+\+\+ / { f = substr($0, 7); next } /^\+/ { print f ": " substr($0, 2) }')"
+[ -n "$added" ] || exit 0
+
+values=""
+if command -v chezmoi >/dev/null 2>&1; then
+  values="$(chezmoi execute-template \
+    '{{ with (get . "work") }}{{ get . "host" }}{{ "\n" }}{{ get . "email" }}{{ end }}' 2>/dev/null || true)"
+fi
+email="$(sed -n 2p <<<"$values")"
+domain="${email#*@}"
+# A shared mail provider would match every personal address too.
+case "$domain" in
+  "$email" | gmail.com | googlemail.com | outlook.com | hotmail.com | live.com | yahoo.com | icloud.com | me.com | proton.me | protonmail.com) domain="" ;;
+esac
+
+hits=""
+while IFS= read -r v; do
+  [ -n "$v" ] || continue
+  hits="$hits$(grep -iF -- "$v" <<<"$added" || true)"$'\n'
+done <<<"$(sed -n 1p <<<"$values")
+$email
+$domain"
+
+if [ -f "$PATTERNS" ]; then
+  while IFS= read -r p; do
+    case "$p" in '' | '#'*) continue ;; esac
+    hits="$hits$(grep -iE -- "$p" <<<"$added" || true)"$'\n'
+  done <"$PATTERNS"
+fi
+
+hits="$(grep -v '^$' <<<"$hits" | sort -u || true)"
+if [ -n "$hits" ]; then
+  echo "pre-commit: staged lines contain private values (work data or $PATTERNS):" >&2
+  echo "$hits" >&2
+  exit 1
+fi

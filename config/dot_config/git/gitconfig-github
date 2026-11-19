@@ -1,3 +1,5 @@
 [user]
     email = dungxmta@gmail.com
     name = dungx
+[include]
+    path = ~/.config/git/signing-github
