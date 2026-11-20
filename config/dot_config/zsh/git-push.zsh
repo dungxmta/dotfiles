@@ -3,8 +3,9 @@
 #                     tree); Enter inserts the paths, then Enter runs the push
 #   git-push          the same picker, then pushes what you select
 #   git-push DIR...   push these repos
+#   gp                git push origin HEAD (this repo); gp <Tab> / gp DIR... act like git-push
 # Everything shown is local (no fetch). Sourced from zshrc after fzf.zsh, whose Tab
-# binding it wraps: Tab only opens the picker on a `git-push ` line.
+# binding it wraps: Tab only opens the picker on a `git-push ` or `gp ` line.
 
 typeset -g GIT_PUSH_ROOTS=${GIT_PUSH_ROOTS:-"$HOME/WORK $HOME/SYNC"}
 
@@ -111,11 +112,21 @@ git-push() {
   done
 }
 
-# Tab on a `git-push ` line opens the picker and inserts ~/paths; any other line keeps the
-# widget Tab had before (fzf's completion).
+# gp: replaces the `gp` alias from aliases.sh (sourced earlier); with args it is git-push.
+unalias gp 2>/dev/null
+function gp {
+  if (( $# )); then
+    git-push "$@"
+  else
+    git push origin HEAD
+  fi
+}
+
+# Tab on a `git-push ` or `gp ` line opens the picker and inserts ~/paths; any other line
+# keeps the widget Tab had before (fzf's completion).
 typeset -g _git_push_tab_prev=${$(bindkey '^I')[2]:-expand-or-complete}
 _git_push_tab() {
-  if [[ $LBUFFER == git-push\ * ]]; then
+  if [[ $LBUFFER == (git-push|gp)\ * ]]; then
     local p sel=""
     for p in ${(f)"$(_git_push_pick </dev/tty)"}; do
       sel+="${${(q)p}/#${(q)HOME}/~} "
@@ -127,4 +138,3 @@ _git_push_tab() {
   fi
 }
 zle -N _git_push_tab
-bindkey '^I' _git_push_tab

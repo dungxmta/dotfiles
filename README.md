@@ -40,6 +40,7 @@ dot sync              # reconcile tools and modules
 dot git               # git accounts: status, then a menu (keys, signing, renew)
 dot git ssh clean     # old keys (kept in ~/.ssh/old/): tidy, delete
 git-push <Tab>        # pick repos under ~/WORK, ~/SYNC with commits to push (fzf)
+gp <Tab>              # same picker; plain `gp` is still git push origin HEAD
 ./install.sh          # change profile, tools or options
 ```
 
