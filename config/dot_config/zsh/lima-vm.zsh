@@ -563,7 +563,7 @@ typeset -g _LIMAVM_BAD=$'[[:cntrl:]\u202a-\u202e\u2066-\u2069]'
 
 # Paths that look like credentials (extended regex, matched in lower case against a
 # full path). Used by the guest scan and again on the Mac by vm share.
-typeset -g _LIMAVM_SECRET_RE='/\.(ssh|gnupg|aws|azure|kube|docker|password-store)/|/keyrings/|/\.config/(gh|glab-cli|gcloud|rclone)/|/\.m2/settings\.xml$|/\.claude/\.credentials\.json$|/\.codex/auth\.json$|/(\.netrc|\.git-credentials|\.pgpass|\.npmrc|\.pypirc|\.vault-token|\.env|\.env\.[^/]*|[^/]*\.(pem|key|p12|pfx|kdbx|tfstate)|id_[^/]*|\.?credentials[^/]*|ssh_host_[^/]*|[^/]*_history)$'
+typeset -g _LIMAVM_SECRET_RE='/\.(ssh|gnupg|aws|azure|kube|docker|password-store)/|/keyrings/|/\.config/(gh|glab-cli|gcloud|rclone)/|/\.m2/settings\.xml$|/\.claude(-home)?/\.credentials\.json$|/\.codex/auth\.json$|/(\.netrc|\.git-credentials|\.pgpass|\.npmrc|\.pypirc|\.vault-token|\.env|\.env\.[^/]*|[^/]*\.(pem|key|p12|pfx|kdbx|tfstate)|id_[^/]*|\.?credentials[^/]*|ssh_host_[^/]*|[^/]*_history)$'
 
 # sh -c SCRIPT _ PATH FOLLOW SCAN HOME_RELATIVE SECRET_RE — plain sh, runs on host and guest.
 # Line 1: "dir|file SIZE_KB FILES SYMLINKS" or "missing" (FOLLOW=1 counts through links).
