@@ -123,8 +123,12 @@ function gp {
 }
 
 # Tab on a `git-push ` or `gp ` line opens the picker and inserts ~/paths; any other line
-# keeps the widget Tab had before (fzf's completion).
-typeset -g _git_push_tab_prev=${$(bindkey '^I')[2]:-expand-or-complete}
+# keeps the widget Tab had before (fzf's completion). On reload-zsh Tab is already ours:
+# keep the saved widget instead of calling ourselves.
+() {
+  local w=${$(bindkey '^I')[2]:-expand-or-complete}
+  [[ $w == _git_push_tab ]] || typeset -g _git_push_tab_prev=$w
+}
 _git_push_tab() {
   if [[ $LBUFFER == (git-push|gp)\ * ]]; then
     local p sel=""
@@ -138,3 +142,6 @@ _git_push_tab() {
   fi
 }
 zle -N _git_push_tab
+bindkey '^I' _git_push_tab
+# zsh-vi-mode initializes lazily and may reset Tab: bind it again after that
+(( $+functions[zvm_init] )) && zvm_after_init_commands+=("bindkey '^I' _git_push_tab")
