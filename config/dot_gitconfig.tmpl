@@ -37,6 +37,9 @@
     insteadOf = https://{{ .work.host }}/
 [includeIf "hasconfig:remote.*.url:git@{{ .work.host }}:*/**"]
     path = ~/.config/git/gitconfig-work
+# hasconfig matches the stored URL, before insteadOf rewrites it
+[includeIf "hasconfig:remote.*.url:https://{{ .work.host }}/**"]
+    path = ~/.config/git/gitconfig-work
 {{- range (list "work" | concat (get .work "sshAliases" | default list)) }}
 [includeIf "hasconfig:remote.*.url:git@{{ . }}:*/**"]
     path = ~/.config/git/gitconfig-work
