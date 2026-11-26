@@ -28,6 +28,8 @@
     path = ~/.config/git/gitconfig-gitlab
 [includeIf "hasconfig:remote.*.url:git@gitlab.com:*/**"]
     path = ~/.config/git/gitconfig-gitlab
+[includeIf "hasconfig:remote.*.url:https://gitlab.com/**"]
+    path = ~/.config/git/gitconfig-gitlab
 {{- end }}
 {{- if hasKey . "work" }}
 
