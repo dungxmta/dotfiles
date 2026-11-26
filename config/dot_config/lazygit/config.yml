@@ -9,6 +9,10 @@ git:
     # difftastic:
     # - type: extDiff
     #   command: difft --color=always --display=inline --syntax-highlight=on --tab-width=2
+  # Commit message starts "<type>(<KEY>): " on <type>/<KEY>/<desc> branches (feat/ABC-12/x -> "feat(ABC-12): ")
+  commitPrefix:
+    - pattern: '^(feat|fix|hotfix|refactor|perf|test|docs|chore|security|revert)/([A-Z][A-Z0-9]+(-[0-9]+)?|EXP)/.*'
+      replace: '$1($2): '
 # Keybindings: full v0.66.2 defaults pinned so lazygit upgrades don't change them
 # (https://github.com/jesseduffield/lazygit/blob/v0.66.2/docs/Config.md); "override:" marks my changes.
 # After upgrading, diff against the new Config.md block and add new actions here.
