@@ -317,6 +317,22 @@ else
   _my_bindkeys
 fi
 
+# zsh-vi-mode: flash what a yank took (visual y, yy, yw, ...) for 0.2s, like tmux copy mode.
+# Every yank goes through zvm_yank, which leaves the range in CURSOR..MARK. Keys typed
+# during the flash wait, they aren't lost. Skipped if a plugin update renames zvm_yank.
+if (( $+functions[zvm_yank] && ! $+functions[_zvm_yank_orig] )); then
+  zmodload zsh/zselect
+  functions[_zvm_yank_orig]=$functions[zvm_yank]
+  zvm_yank() {
+    _zvm_yank_orig "$@"
+    local -a lit=("${region_highlight[@]}")
+    region_highlight+=("$CURSOR $MARK fg=$ZVM_VI_HIGHLIGHT_FOREGROUND,bg=$ZVM_VI_HIGHLIGHT_BACKGROUND")
+    zle -R
+    zselect -t 20
+    region_highlight=("${lit[@]}")
+  }
+fi
+
 # User configuration
 
 # export MANPATH="/usr/local/man:$MANPATH"
