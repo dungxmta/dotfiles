@@ -253,6 +253,10 @@ source "$HOME/.config/shell/common/aliases.sh"
 # reload config, regenerating everything in the cache above (an alias, not a function,
 # so zshrc is sourced at top level and its typesets stay global)
 alias reload-zsh='_zsh_cache_refresh=1; source ~/.zshrc; unset _zsh_cache_refresh; (( $+functions[_dot_index] )) && _dot_index -q'
+# same refresh in a new login shell (exec, same terminal): also re-runs ~/.zprofile and drops
+# old functions, variables and exports, but this session's history goes (curated history on).
+# The flag goes through the environment; the end of this file unsets it.
+alias restart-zsh='_zsh_cache_refresh=1 exec zsh -l'
 export XDG_CONFIG_HOME="$HOME/.config"
 
 ## k8s (completion regenerated when the kubectl binary changes)
@@ -311,3 +315,10 @@ function y() {
 	rm -f -- "$tmp"
 }
 {{- end }}
+
+# restart-zsh: the refresh flag came in exported. Unset it so child shells don't regenerate
+# the caches too, and rebuild the dot index like reload-zsh (which sets it unexported).
+if [[ ${(t)_zsh_cache_refresh} == *export* ]]; then
+  unset _zsh_cache_refresh
+  (( $+functions[_dot_index] )) && _dot_index -q
+fi
