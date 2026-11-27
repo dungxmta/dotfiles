@@ -93,6 +93,18 @@ zstyle ':omz:update' mode disabled  # no self-update: plugins are pinned, ./inst
 # Example format: plugins=(rails git textmate ruby lighthouse)
 # Add wisely, as too many plugins slow down shell startup.
 plugins=(git zsh-autosuggestions zsh-syntax-highlighting zsh-vi-mode)
+
+# zsh-vi-mode (read when the plugin loads): visual selection in tmux's copy-mode colours,
+# and y also copies to the system clipboard. p still pastes zsh-vi-mode's own register.
+ZVM_VI_HIGHLIGHT_BACKGROUND=yellow
+ZVM_VI_HIGHLIGHT_FOREGROUND=black
+ZVM_SYSTEM_CLIPBOARD_ENABLED=true
+{{- if not $mac }}
+# no pbcopy here: osc52 (aliases.sh) to the terminal; tmux's set-clipboard passes it to the
+# Mac. zsh-vi-mode wants a paste command too but never runs it.
+ZVM_CLIPBOARD_COPY_CMD='osc52 >/dev/tty'
+ZVM_CLIPBOARD_PASTE_CMD='tmux save-buffer -'
+{{- end }}
 {{- if $mac }}
 
 # Homebrew completions in non-login shells too (nvim :terminal, `zsh`): ~/.zprofile adds
