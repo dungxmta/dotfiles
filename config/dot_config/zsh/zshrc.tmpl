@@ -150,22 +150,109 @@ if [[ $ZSH_CURATED_HISTORY == on ]]; then
   export PYTHON_HISTORY=/dev/null LESSHISTFILE=- NODE_REPL_HISTORY=''
 fi
 
-# Append the previous command to the curated history file.
-hkeep() {
-  local cmd=${history[$((HISTCMD - 1))]}
-  if [[ -z $cmd || $cmd == hkeep(| *) ]]; then
-    print -u2 "hkeep: no previous command to keep"
-    return 1
-  fi
-  local file=$ZSH_CURATED_HISTFILE
-  [[ -d ${file:h} ]] || mkdir -m 700 -p -- "${file:h}"
-  if [[ $cmd != *$'\n'* && -f $file ]] && grep -qxF -- "$cmd" "$file"; then
-    print "hkeep: already kept"
+# Curated history file. hkeep: menu; -l the previous command, -p pick this session's
+# commands (fzf), -d pick kept commands to delete (fzf). The file stores a multi-line
+# command as lines ending in "\", which is what fc -R reads back.
+
+# reply: the kept commands, one element per command.
+_hkeep_entries() {
+  reply=()
+  local line cur more=0
+  [[ -r $ZSH_CURATED_HISTFILE ]] || return 0
+  while IFS= read -r line; do
+    (( more )) && cur+=$'\n' || cur=
+    if [[ $line == *\\ ]]; then
+      cur+=${line%\\} more=1
+    else
+      cur+=$line more=0
+      reply+=("$cur")
+    fi
+  done <"$ZSH_CURATED_HISTFILE"
+  (( more )) && reply+=("$cur")
+  return 0
+}
+
+# reply: this session's commands not kept yet, newest first, each once.
+_hkeep_new() {
+  local n c
+  local -a kept
+  local -aU new
+  _hkeep_entries
+  kept=("${reply[@]}")
+  for n in ${(Onk)history}; do
+    c=${history[$n]}
+    [[ $c == hkeep(| *) ]] || (( ${kept[(Ie)$c]} )) || new+=("$c")
+  done
+  reply=("${new[@]}")
+}
+
+# Append command $1 to the file unless it is kept already.
+_hkeep_write() {
+  local file=$ZSH_CURATED_HISTFILE nl=$'\n'
+  _hkeep_entries
+  if (( ${reply[(Ie)$1]} )); then
+    print -r -- "hkeep: already kept: $1"
     return 0
   fi
-  local nl=$'\n'
-  (umask 077; print -r -- "${cmd//$nl/\\$nl}" >>"$file")
-  print -r -- "hkeep: kept: $cmd"
+  [[ -d ${file:h} ]] || mkdir -m 700 -p -- "${file:h}"
+  (umask 077; print -r -- "${1//$nl/\\$nl}" >>"$file")
+  print -r -- "hkeep: kept: $1"
+}
+
+# fzf over the commands in reply (multi-line ones stay whole); reply: the picked ones.
+_hkeep_pick() {
+  local out
+  out=$(print -rN -- "${reply[@]}" | fzf --read0 --print0 --multi --height=~50% --reverse \
+    --prompt="$1> " --header="Tab: select several · Enter: $1") || { reply=(); return 1 }
+  reply=("${(@0)out}")
+  reply=("${(@)reply:#}")
+}
+
+hkeep() {
+  local file=$ZSH_CURATED_HISTFILE nl=$'\n' prev=${history[$((HISTCMD - 1))]} c key
+  [[ $prev == hkeep(| *) ]] && prev=
+  case $1 in
+    -l)
+      [[ -n $prev ]] || { print -u2 "hkeep: no previous command to keep"; return 1 }
+      _hkeep_write "$prev"
+      ;;
+    -p)
+      (( $+commands[fzf] )) || { print -u2 "hkeep: -p needs fzf"; return 1 }
+      _hkeep_new
+      (( $#reply )) || { print "hkeep: nothing new to keep"; return 0 }
+      _hkeep_pick keep || return 0
+      for c in "${reply[@]}"; do _hkeep_write "$c"; done
+      ;;
+    -d)
+      (( $+commands[fzf] )) || { print -u2 "hkeep: -d needs fzf"; return 1 }
+      _hkeep_entries
+      local -a all=("${reply[@]}") rest
+      (( $#all )) || { print "hkeep: nothing kept yet"; return 0 }
+      _hkeep_pick delete || return 0
+      (( $#reply )) || return 0
+      for c in "${all[@]}"; do (( ${reply[(Ie)$c]} )) || rest+=("$c"); done
+      # temp file + rename: a failed write never truncates the kept history
+      (umask 077; for c in "${rest[@]}"; do print -r -- "${c//$nl/\\$nl}"; done >|"$file.$$") &&
+        mv -f -- "$file.$$" "$file" || { rm -f -- "$file.$$"; return 1 }
+      print -r -- "hkeep: deleted $(( $#all - $#rest ))"
+      ;;
+    '')
+      _hkeep_new
+      [[ $prev == *$nl* ]] && c=' …'
+      print -r -- "  1  previous command   ${${prev%%$nl*}:-(none)}$c"
+      print -r -- "  2  session commands   pick from $#reply not kept yet (fzf)"
+      print -r -- "  3  remove kept        pick kept lines to delete (fzf)"
+      print -n -- "? [1-3, Enter = 1, q = quit] "
+      read -k1 key
+      [[ $key == $'\n' ]] || print
+      case $key in
+        1|$'\n') hkeep -l ;;
+        2) hkeep -p ;;
+        3) hkeep -d ;;
+      esac
+      ;;
+    *) print -u2 "usage: hkeep [-l | -p | -d]"; return 2 ;;
+  esac
 }
 
 ## agents (flag AGENT_EPHEMERAL at top of file)
