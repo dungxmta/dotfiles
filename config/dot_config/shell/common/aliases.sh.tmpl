@@ -32,7 +32,10 @@ alias lazygit="TERM=xterm-256color command lazygit"
 alias gc="git commit -m"
 alias gca="git commit -a -m"
 alias gp="git push origin HEAD"
-alias gmr="git mr" # merge request helper; the "mr" git alias is defined per machine
+# merge request helper; the "mr" git alias is defined per machine. A function, not an alias:
+# git answers "git mr --help" itself, so --help goes in as -h.
+unalias gmr 2>/dev/null
+gmr() { if [ "${1:-}" = --help ]; then shift; set -- -h "$@"; fi; git mr "$@"; }
 alias gpu="git pull origin"
 alias gst="git status"
 alias glog="git log --graph --topo-order --pretty='%w(100,0,6)%C(yellow)%h%C(bold)%C(black)%d %C(cyan)%ar %C(green)%an%n%C(bold)%C(white)%s %N' --abbrev-commit"
