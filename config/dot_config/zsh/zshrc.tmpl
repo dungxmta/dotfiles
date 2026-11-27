@@ -102,8 +102,8 @@ plugins=(git zsh-autosuggestions zsh-syntax-highlighting zsh-vi-mode)
 ZVM_VI_HIGHLIGHT_BACKGROUND='#223249'
 ZVM_VI_HIGHLIGHT_FOREGROUND=default
 ZSH_YANK_FLASH_STYLE='fg=#DCD7BA,bg=#2D4F67'
-# hex colours need truecolor; without COLORTERM (e.g. tmux over ssh) use the nearest of 256
-[[ $COLORTERM == (truecolor|24bit) ]] || zmodload zsh/nearcolor
+# Hex colours go out as truecolor (Ghostty and tmux with RGB render them). Not zsh/nearcolor:
+# it rounds both blues to the same 256-colour entry (236), so the flash would vanish.
 ZVM_SYSTEM_CLIPBOARD_ENABLED=true
 {{- if not $mac }}
 # no pbcopy here: osc52 (aliases.sh) to the terminal; tmux's set-clipboard passes it to the
