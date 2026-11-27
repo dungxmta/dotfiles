@@ -537,6 +537,12 @@ nnoremap Q @@
 " There are several more Neovim mappings that need to be ported.  See link.
 
 map s <Action>(flash.search)
+" surround like nvim's LazyVim mini-surround extra (gs prefix, so s stays flash):
+" gsa add (normal + visual), gsd delete, gsr replace. vim-surround's ys/cs/ds/S still work.
+nmap gsa <Plug>YSurround
+xmap gsa <Plug>VSurround
+nmap gsd <Plug>DSurround
+nmap gsr <Plug>CSurround
 
 " Map entering insert mode to run a script ->> doesnt work
 " :imap <silent> <Esc> <Esc>:!im-select com.apple.keylayout.UnicodeHexInput<CR>

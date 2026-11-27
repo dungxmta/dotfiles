@@ -105,6 +105,10 @@ ZSH_YANK_FLASH_STYLE='fg=#DCD7BA,bg=#2D4F67'
 # Hex colours go out as truecolor (Ghostty and tmux with RGB render them). Not zsh/nearcolor:
 # it rounds both blues to the same 256-colour entry (236), so the flash would vanish.
 ZVM_SYSTEM_CLIPBOARD_ENABLED=true
+# surround: sa (visual, e.g. viw then sa"), sd(, sr("; text objects (yi(, ci", ...) stay.
+# Not the classic ys/cs/ds/S: visual ys( made a plain visual y wait ZVM_KEYTIMEOUT (0.4s).
+# nvim and IdeaVim use gsa/gsd/gsr (s is flash there; zsh-vi-mode has no gs prefix).
+ZVM_VI_SURROUND_BINDKEY=s-prefix
 {{- if not $mac }}
 # no pbcopy here: osc52 (aliases.sh) to the terminal; tmux's set-clipboard passes it to the
 # Mac. zsh-vi-mode wants a paste command too but never runs it.
