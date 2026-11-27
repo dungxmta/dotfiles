@@ -92,6 +92,14 @@ zstyle ':omz:update' frequency 7
 # Example format: plugins=(rails git textmate ruby lighthouse)
 # Add wisely, as too many plugins slow down shell startup.
 plugins=(git zsh-autosuggestions zsh-syntax-highlighting zsh-vi-mode)
+{{- if $mac }}
+
+# Homebrew completions in non-login shells too (nvim :terminal, `zsh`): ~/.zprofile adds
+# them but no longer exports FPATH. Same position as there, so .zcompdump stays valid.
+_brew_fpath=${HOMEBREW_PREFIX:-/opt/homebrew}/share/zsh/site-functions
+(( ${fpath[(Ie)$_brew_fpath]} )) || fpath=($_brew_fpath $fpath)
+unset _brew_fpath
+{{- end }}
 
 fpath+=${ZSH_CUSTOM:-${ZSH:-~/.oh-my-zsh}/custom}/plugins/zsh-completions/src
 fpath=("$HOME/.config/zsh/completions" $fpath) # _dot, _vm (Mac); before compinit in oh-my-zsh
