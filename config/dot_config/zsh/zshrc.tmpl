@@ -239,12 +239,23 @@ hkeep() {
     '')
       _hkeep_new
       [[ $prev == *$nl* ]] && c=' …'
-      print -r -- "  p  previous command   ${${prev%%$nl*}:-(none)}$c"
-      print -r -- "  s  session commands   pick from $#reply not kept yet (fzf)"
-      print -r -- "  r  remove kept        pick kept lines to delete (fzf)"
-      print -n -- "? [p/s/r, Enter = p, q = quit] "
-      read -k1 key
-      [[ $key == $'\n' ]] || print
+      local -a menu=(
+        "p  previous command   ${${prev%%$nl*}:-(none)}$c"
+        "s  session commands   pick from $#reply not kept yet"
+        "r  remove kept        pick kept lines to delete"
+      )
+      if (( $+commands[fzf] )); then
+        # one key picks (no search box); ↑↓ Enter works too
+        key=$(print -rl -- $menu | fzf --no-input --reverse --height=~10 \
+          --header='p / s / r, or ↑↓ Enter · q / Esc: quit' \
+          --bind 'p:become(echo p),s:become(echo s),r:become(echo r),q:abort') || return 0
+        key=${key[1]}
+      else
+        print -rl -- "  "${^menu}
+        print -n -- "? [p/s/r, Enter = p, q = quit] "
+        read -k1 key
+        [[ $key == $'\n' ]] || print
+      fi
       case $key in
         p|$'\n') hkeep -l ;;
         s) hkeep -p ;;
