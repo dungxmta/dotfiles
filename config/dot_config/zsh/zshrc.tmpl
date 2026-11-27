@@ -267,6 +267,17 @@ hkeep() {
   esac
 }
 
+## prompt marks (OSC 133) for tmux: A where each prompt starts, C where a command's output
+## starts; tmux prefix C-y copies the last output with them. Only in tmux: other terminals
+## (Ghostty, Warp) have their own shell integration.
+if [[ -n $TMUX ]]; then
+  autoload -Uz add-zsh-hook
+  _osc133_prompt() { print -n '\e]133;A\e\\' }
+  _osc133_output() { print -n '\e]133;C\e\\' }
+  add-zsh-hook precmd _osc133_prompt
+  add-zsh-hook preexec _osc133_output
+fi
+
 ## agents (flag AGENT_EPHEMERAL at top of file)
 if [[ $AGENT_EPHEMERAL == on ]]; then
   export CLAUDE_CODE_SKIP_PROMPT_HISTORY=1
