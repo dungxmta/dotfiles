@@ -94,10 +94,16 @@ zstyle ':omz:update' mode disabled  # no self-update: plugins are pinned, ./inst
 # Add wisely, as too many plugins slow down shell startup.
 plugins=(git zsh-autosuggestions zsh-syntax-highlighting zsh-vi-mode)
 
-# zsh-vi-mode (read when the plugin loads): visual selection in tmux's copy-mode colours,
-# and y also copies to the system clipboard. p still pastes zsh-vi-mode's own register.
-ZVM_VI_HIGHLIGHT_BACKGROUND=yellow
-ZVM_VI_HIGHLIGHT_FOREGROUND=black
+# zsh-vi-mode (read when the plugin loads): visual selection and yank flash in the colours
+# of nvim's kanagawa and tmux copy mode (tmux.conf: mode-style, @yank_flash_style):
+# selection #223249, the yanked text flashes #2D4F67 with light text (zvm_yank below).
+# Compare options in this terminal: scripts/yank-colors.sh in the dotfiles repo.
+# y also copies to the system clipboard; p still pastes zsh-vi-mode's own register.
+ZVM_VI_HIGHLIGHT_BACKGROUND='#223249'
+ZVM_VI_HIGHLIGHT_FOREGROUND=default
+ZSH_YANK_FLASH_STYLE='fg=#DCD7BA,bg=#2D4F67'
+# hex colours need truecolor; without COLORTERM (e.g. tmux over ssh) use the nearest of 256
+[[ $COLORTERM == (truecolor|24bit) ]] || zmodload zsh/nearcolor
 ZVM_SYSTEM_CLIPBOARD_ENABLED=true
 {{- if not $mac }}
 # no pbcopy here: osc52 (aliases.sh) to the terminal; tmux's set-clipboard passes it to the
@@ -317,7 +323,9 @@ else
   _my_bindkeys
 fi
 
-# zsh-vi-mode: flash what a yank took (visual y, yy, yw, ...) for 0.15s, like nvim's highlight-on-yank.
+# zsh-vi-mode: flash what a yank took (visual y, yy, yw, ...) for 0.15s in ZSH_YANK_FLASH_STYLE
+# (top of the zsh-vi-mode settings; colour options: scripts/yank-colors.sh), like nvim's
+# highlight-on-yank.
 # Every yank goes through zvm_yank, which leaves the range in CURSOR..MARK. Keys typed
 # during the flash wait, they aren't lost. Skipped if a plugin update renames zvm_yank.
 if (( $+functions[zvm_yank] && ! $+functions[_zvm_yank_orig] )); then
@@ -326,7 +334,7 @@ if (( $+functions[zvm_yank] && ! $+functions[_zvm_yank_orig] )); then
   zvm_yank() {
     _zvm_yank_orig "$@"
     local -a lit=("${region_highlight[@]}")
-    region_highlight+=("$CURSOR $MARK fg=$ZVM_VI_HIGHLIGHT_FOREGROUND,bg=$ZVM_VI_HIGHLIGHT_BACKGROUND")
+    region_highlight+=("$CURSOR $MARK $ZSH_YANK_FLASH_STYLE")
     zle -R
     zselect -t 15
     region_highlight=("${lit[@]}")
