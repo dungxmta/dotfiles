@@ -2,3 +2,6 @@
 # git/lazygit): mise tools through shims. Interactive shells also run
 # `mise activate` in ~/.config/zsh/zshrc, which puts the real install dirs first.
 export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
+# Ubuntu's /etc/zsh/zshrc runs compinit before ~/.zshrc; oh-my-zsh runs its own, so the
+# first one only cost time (~20ms per shell, more when its ~/.zcompdump went stale).
+skip_global_compinit=1

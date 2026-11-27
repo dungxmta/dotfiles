@@ -1,6 +1,14 @@
 # Set PATH, MANPATH, etc., for Homebrew, unless /etc/zprofile already did
-# (some managed Macs add it there).
-[[ "$(</etc/zprofile)" == *'brew shellenv'* ]] 2>/dev/null || eval "$(/opt/homebrew/bin/brew shellenv)"
+# (some managed Macs add it there). Its output doesn't depend on the environment, so it is
+# cached (~30ms per login shell) and regenerated when `brew update` rewrites bin/brew.
+if ! [[ "$(</etc/zprofile)" == *'brew shellenv'* ]] 2>/dev/null; then
+  _brew_env=${XDG_CACHE_HOME:-$HOME/.cache}/zsh/brew-shellenv.zsh
+  if [[ ! -s $_brew_env || /opt/homebrew/bin/brew -nt $_brew_env ]]; then
+    mkdir -p ${_brew_env:h} && /opt/homebrew/bin/brew shellenv zsh >|$_brew_env
+  fi
+  source $_brew_env
+  unset _brew_env
+fi
 # brew shellenv exports FPATH: child shells (tmux panes, nvim :terminal) then inherit the
 # parent's full fpath, oh-my-zsh's "#omz fpath" check in .zcompdump never matches between
 # them, and compinit rebuilt the dump on every switch (~0.7s). zshrc adds brew's completions.
