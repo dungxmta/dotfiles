@@ -28,7 +28,7 @@ usage: ./install.sh [options]
   --sync                no questions: reuse saved answers, offer new profile
                         defaults, expand the sparse checkout, install missing
                         tools, preview and apply configuration
-  --only TOOL           with --sync: ask only TOOL's questions (nvim, tmux, git, herdr),
+  --only TOOL           with --sync: ask only TOOL's questions (nvim, tmux, git, herdr, zsh),
                         then preview and apply only TOOL's files (dot sync TOOL)
   --outdated            list what has a newer version (tools, runtimes, repo pins)
   --upgrade [NAME...]   upgrade those, or pick from the outdated list; one name
@@ -111,7 +111,7 @@ AGENTS_URL="https://github.com/dungxmta/agents.git"
 
 # --- saved state ----------------------------------------------------------------
 
-S_PROFILE="" S_TOOLS="" S_RUNTIMES="" S_APPS="" S_NVIM="" S_NVIM_CLIPBOARD="" S_HERDR_MOUSE="" S_TMUX="" S_PREFIX="" S_DOT="" S_AGENTS="" S_MODE=""
+S_PROFILE="" S_TOOLS="" S_RUNTIMES="" S_APPS="" S_NVIM="" S_NVIM_CLIPBOARD="" S_HERDR_MOUSE="" S_ZSH_SAVE_HISTORY="" S_TMUX="" S_PREFIX="" S_DOT="" S_AGENTS="" S_MODE=""
 S_CHECKOUT="" S_SEEN="" S_MISE="" S_WORK="" S_WORK_HOST="" S_WORK_EMAIL=""
 load_state() {
   [ -f "$CZ_CONFIG" ] && has chezmoi || return 0
@@ -124,6 +124,7 @@ S_APPS={{ get . "apps" | default list | join " " }}
 S_NVIM={{ get . "nvimVariant" }}
 S_NVIM_CLIPBOARD={{ get . "nvimClipboardOverSsh" }}
 S_HERDR_MOUSE={{ get . "herdrMouseCapture" }}
+S_ZSH_SAVE_HISTORY={{ get . "zshSaveHistory" }}
 S_TMUX={{ get . "tmuxVariant" }}
 S_PREFIX={{ get . "tmuxPrefix" }}
 S_DOT={{ get . "dotEnabled" }}
@@ -152,7 +153,7 @@ write_state() {
   DOT_REPO="$REPO" DOT_PROFILE="$PROFILE" DOT_CHECKOUT="$CHECKOUT" \
     DOT_TOOLS="$(csv "$TOOLS")" DOT_RUNTIMES="$(csv "$RUNTIMES")" DOT_APPS="$(csv "$APPS")" \
     DOT_MISE_TOOLS="$(csv "$PLAN_MISE")" DOT_DEFAULTS_SEEN="$(csv "$SEEN_TOOLS")" \
-    DOT_NVIM="$NVIM" DOT_NVIM_CLIPBOARD_OVER_SSH="$NVIM_CLIPBOARD" DOT_HERDR_MOUSE_CAPTURE="$HERDR_MOUSE" DOT_TMUX="$TMUX_VARIANT" DOT_TMUX_PREFIX="$PREFIX" DOT_DOT="$DOT" DOT_AGENTS="$AGENTS" DOT_MODE="$SAVED_MODE" \
+    DOT_NVIM="$NVIM" DOT_NVIM_CLIPBOARD_OVER_SSH="$NVIM_CLIPBOARD" DOT_HERDR_MOUSE_CAPTURE="$HERDR_MOUSE" DOT_ZSH_SAVE_HISTORY="$ZSH_SAVE_HISTORY" DOT_TMUX="$TMUX_VARIANT" DOT_TMUX_PREFIX="$PREFIX" DOT_DOT="$DOT" DOT_AGENTS="$AGENTS" DOT_MODE="$SAVED_MODE" \
     DOT_WORK_HOST="${WORK_HOST:-}" DOT_WORK_EMAIL="${WORK_EMAIL:-}" \
     chezmoi --config "$1" --source "$REPO" init --no-tty >/dev/null
 }
@@ -196,6 +197,8 @@ else
   NVIM_CLIPBOARD=""
   HERDR_MOUSE=""  # empty: herdr's default (capture), or the value already saved
 fi
+# zsh history is a per-machine habit, kept across profile changes (default: memory only)
+ZSH_SAVE_HISTORY="${S_ZSH_SAVE_HISTORY:-false}"
 # clipboard-over-ssh: on by default where you usually SSH in (Linux VMs, devpods)
 [ -n "$NVIM_CLIPBOARD" ] || { [ "$(uname -s)" = Linux ] && NVIM_CLIPBOARD=true || NVIM_CLIPBOARD=false; }
 # First run on an ordinary full clone: keep it full unless --checkout sparse.
@@ -261,6 +264,17 @@ ask_herdr_mouse() {
   [ "$d" = Yes ] && HERDR_MOUSE=true || HERDR_MOUSE=false
 }
 
+# zsh history: every command to ~/.zsh_history, or memory only (keep picks with hkeep).
+# Enter keeps the saved answer (memory only the first time).
+ask_zsh_history() {
+  if confirm "Save zsh history to a file? (y = ~/.zsh_history, n = memory only; keep picks with hkeep)" \
+    "$([ "$ZSH_SAVE_HISTORY" = true ] && echo y || echo n)"; then
+    ZSH_SAVE_HISTORY=true
+  else
+    ZSH_SAVE_HISTORY=false
+  fi
+}
+
 # Work Git identity; Enter keeps the saved one.
 ask_work() {
   local h e
@@ -291,6 +305,7 @@ if [ -n "$ONLY" ]; then
         ;;
       git) ask_work ;;
       herdr) [ -n "$OPT_HERDR_MOUSE" ] || ask_herdr_mouse ;;
+      zsh) ask_zsh_history ;;
     esac
   fi
 elif [ "$PROFILE" = tmux-only ]; then
@@ -310,6 +325,7 @@ elif [ "$ask" = true ]; then
       ask_prefix
     fi
     case "$PROFILE" in devpod) ;; *) ask_herdr_mouse ;; esac  # herdr's config ships everywhere else
+    [ "$PROFILE_SHELL" = zsh ] && ask_zsh_history
     d="$(choose_one "Install dot CLI helper?" "$([ "$DOT" = true ] && echo Yes || echo No)" Yes No)"
     [ "$d" = Yes ] && DOT=true || DOT=false
     d="$(choose_one "Install AI agent config + skills (agents repo)?" "$([ "$AGENTS" = true ] && echo Yes || echo No)" No Yes)"
@@ -386,7 +402,7 @@ step "Review installation"
 [ -n "$S_PROFILE" ] && [ "$same" != true ] && say "  Profile change: $S_PROFILE -> $PROFILE (selections reset to $PROFILE defaults)"
 say "  Profile:    $PROFILE"
 say "  Checkout:   $CHECKOUT (currently $(is_sparse && echo sparse || echo full))"
-say "  Shell:      $([ "$PROFILE_SHELL" = zsh ] && echo "zsh + Oh My Zsh + Starship" || echo "unmanaged")"
+say "  Shell:      $([ "$PROFILE_SHELL" = zsh ] && echo "zsh + Oh My Zsh + Starship, history $([ "$ZSH_SAVE_HISTORY" = true ] && echo "saved to ~/.zsh_history" || echo "in memory (+ hkeep)")" || echo "unmanaged")"
 if [ "$PROFILE" = tmux-only ]; then say "  Tools:      none (~/.tmux.conf only)"; else say "  Tools:      $n_cli CLI$extras"; fi
 [ -n "$RUNTIMES" ] && say "  Runtimes:   $RUNTIMES (mise)"
 [ -n "$APPS" ] && say "  Apps:       $APPS"

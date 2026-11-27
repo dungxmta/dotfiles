@@ -47,6 +47,7 @@ tool_targets() {
     tmux) echo ".tmux.conf .config/tmux" ;;
     neovim) echo ".config/nvim" ;;
     herdr) echo ".config/herdr" ;;  # a profile module, not a tool (dot sync herdr)
+    zsh) echo ".config/zsh/zshrc" ;;  # the profile's shell, not a tool (dot sync zsh)
   esac
 }
 
