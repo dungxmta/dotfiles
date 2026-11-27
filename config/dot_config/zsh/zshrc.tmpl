@@ -180,7 +180,7 @@ fi
 # Key bindings: zsh-vi-mode initializes lazily and resets bindings, so apply
 # ours from its after-init hook (or right away when the plugin is missing).
 _my_bindkeys() {
-  bindkey '^w' autosuggest-execute
+  # ^w keeps the default backward-kill-word (delete the previous word); ^e then Enter runs a suggestion
   bindkey '^e' autosuggest-accept
   bindkey '^u' autosuggest-toggle
   bindkey '^L' vi-forward-word
