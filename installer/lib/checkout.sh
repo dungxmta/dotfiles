@@ -4,9 +4,10 @@
 
 is_sparse() { [ "$(git -C "$REPO" config --bool core.sparseCheckout 2>/dev/null)" = true ]; }
 
-# Directories the installer and the selected profile/tools need.
+# Directories the installer and the selected profile/tools need. .githooks: the leak-guard
+# pre-commit hook, used by this repo (core.hooksPath) and linked from other repos.
 sparse_paths() {
-  local id paths="installer config/.chezmoitemplates"
+  local id paths="installer config/.chezmoitemplates .githooks"
   if [ "$PROFILE_SHELL" = zsh ]; then
     paths="$paths scripts config/dot_config/zsh config/dot_config/shell"
     for id in $TOOLS; do paths="$paths $(tool_modules "$id")"; done
