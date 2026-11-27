@@ -239,16 +239,16 @@ hkeep() {
     '')
       _hkeep_new
       [[ $prev == *$nl* ]] && c=' …'
-      print -r -- "  1  previous command   ${${prev%%$nl*}:-(none)}$c"
-      print -r -- "  2  session commands   pick from $#reply not kept yet (fzf)"
-      print -r -- "  3  remove kept        pick kept lines to delete (fzf)"
-      print -n -- "? [1-3, Enter = 1, q = quit] "
+      print -r -- "  p  previous command   ${${prev%%$nl*}:-(none)}$c"
+      print -r -- "  s  session commands   pick from $#reply not kept yet (fzf)"
+      print -r -- "  r  remove kept        pick kept lines to delete (fzf)"
+      print -n -- "? [p/s/r, Enter = p, q = quit] "
       read -k1 key
       [[ $key == $'\n' ]] || print
       case $key in
-        1|$'\n') hkeep -l ;;
-        2) hkeep -p ;;
-        3) hkeep -d ;;
+        p|$'\n') hkeep -l ;;
+        s) hkeep -p ;;
+        r) hkeep -d ;;
       esac
       ;;
     *) print -u2 "usage: hkeep [-l | -p | -d]"; return 2 ;;
